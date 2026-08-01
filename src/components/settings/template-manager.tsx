@@ -883,7 +883,7 @@ export function TemplateManager() {
                   <Label className="text-[11px] text-muted-foreground">
                     {t('sampleValues')}
                   </Label>
-                  {form.body_samples.map((val, i) => {
+                  {Array.from({ length: bodyVarCount }).map((_, i) => {
                     const inputId = `template-body-sample-${i}`;
                     return (
                       <Input
@@ -891,11 +891,14 @@ export function TemplateManager() {
                         id={inputId}
                         aria-label={t('sampleAria', { var: `{{${i + 1}}}` })}
                         placeholder={t('samplePlaceholder', { var: `{{${i + 1}}}` })}
-                        value={val}
+                        value={form.body_samples[i] ?? ''}
                         onChange={(e) => {
-                          const next = [...form.body_samples];
-                          next[i] = e.target.value;
-                          setForm({ ...form, body_samples: next });
+                          setForm((prev) => {
+                            const next = prev.body_samples.slice(0, bodyVarCount);
+                            while (next.length < bodyVarCount) next.push('');
+                            next[i] = e.target.value;
+                            return { ...prev, body_samples: next };
+                          });
                         }}
                         className="bg-muted border-border text-foreground placeholder:text-muted-foreground"
                       />
