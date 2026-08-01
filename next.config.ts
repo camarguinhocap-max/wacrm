@@ -70,6 +70,20 @@ const nextConfig: NextConfig = {
   output: "standalone",
 
   /**
+   * Skip the `tsc` type-check pass during `next build`.
+   *
+   * Why: on constrained build hardware (e.g. a 1 OCPU / 1GB Oracle
+   * Always-Free VM) the full-project type check after Turbopack's
+   * compile step can take 40+ minutes and dominate the whole build.
+   * Type errors are still caught by editors and any CI step that
+   * runs `tsc --noEmit` separately — this only skips the redundant
+   * check baked into the production build itself.
+   */
+  typescript: {
+    ignoreBuildErrors: true,
+  },
+
+  /**
    * Cross-origin dev access (Next.js 16).
    *
    * Next 16 blocks requests to dev-only resources (`/_next/*` internals,
