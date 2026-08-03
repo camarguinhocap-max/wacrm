@@ -39,6 +39,7 @@ export function ProfileForm() {
 
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
+  const [telegramChatId, setTelegramChatId] = useState('');
   const [pendingAvatar, setPendingAvatar] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [removeAvatar, setRemoveAvatar] = useState(false);
@@ -50,6 +51,7 @@ export function ProfileForm() {
     if (!profile) return;
     setFullName(profile.full_name ?? '');
     setEmail(profile.email ?? '');
+    setTelegramChatId(profile.telegram_chat_id ?? '');
   }, [profile]);
 
   // Cleanup object URLs to avoid leaks.
@@ -139,12 +141,16 @@ export function ProfileForm() {
         nextAvatarUrl = null;
       }
 
-      // Persist name + avatar to profiles.
+      // Persist name + avatar + Telegram link to profiles. Empty string
+      // is normalized to null so an agent can un-link by clearing the
+      // field rather than leaving a stray "".
+      const trimmedTelegramChatId = telegramChatId.trim();
       const { error: updateError } = await supabase
         .from('profiles')
         .update({
           full_name: trimmedName,
           avatar_url: nextAvatarUrl,
+          telegram_chat_id: trimmedTelegramChatId || null,
         })
         .eq('user_id', user.id);
       if (updateError) {
@@ -195,6 +201,7 @@ export function ProfileForm() {
     !!profile &&
     (fullName.trim() !== (profile.full_name ?? '') ||
       email.trim().toLowerCase() !== (profile.email ?? '').toLowerCase() ||
+      telegramChatId.trim() !== (profile.telegram_chat_id ?? '') ||
       pendingAvatar !== null ||
       removeAvatar);
 
@@ -302,6 +309,24 @@ export function ProfileForm() {
                 </span>
               </p>
             )}
+          </div>
+
+          {/* Telegram notifications */}
+          <div className="space-y-2">
+            <Label htmlFor="profile-telegram-chat-id" className="text-foreground">
+              {t('telegramChatId')}
+            </Label>
+            <Input
+              id="profile-telegram-chat-id"
+              value={telegramChatId}
+              onChange={(e) => setTelegramChatId(e.target.value)}
+              placeholder="123456789"
+              disabled={saving}
+              inputMode="numeric"
+            />
+            <p className="text-xs text-muted-foreground">
+              {t('telegramChatIdHint')}
+            </p>
           </div>
 
           {/* Read-only block */}

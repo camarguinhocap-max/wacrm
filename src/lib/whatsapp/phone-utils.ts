@@ -91,6 +91,24 @@ export function phoneVariants(sanitized: string): string[] {
     }
   }
 
+  // 4. Brazil mobile "extra 9" quirk. Meta's inbound wa_id for Brazilian
+  // mobile numbers drops the digit-9 mobile prefix (e.g. a customer
+  // messaging in from +55 41 99830-8282 arrives as wa_id 554198308282),
+  // but a number registered on the sandbox's allowed-recipient list (or a
+  // contact typed in manually) usually keeps it (5541998308282). Neither
+  // form is consistently "right" — try both directions so a reply to an
+  // inbound-created contact doesn't silently fail with #131030.
+  if (sanitized.startsWith('55')) {
+    const rest = sanitized.slice(2) // DDD + subscriber number
+    if (rest.length === 10) {
+      // DDD (2) + 8-digit subscriber → insert the mobile "9"
+      push('55' + rest.slice(0, 2) + '9' + rest.slice(2))
+    } else if (rest.length === 11 && rest[2] === '9') {
+      // DDD (2) + 9-digit subscriber starting with "9" → remove it
+      push('55' + rest.slice(0, 2) + rest.slice(3))
+    }
+  }
+
   return [...seen]
 }
 

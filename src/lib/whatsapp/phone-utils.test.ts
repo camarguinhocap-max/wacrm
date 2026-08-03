@@ -134,6 +134,24 @@ describe("phoneVariants", () => {
     // 1-char input is shorter than all ccLen values; both loops skip.
     expect(phoneVariants("1")).toEqual(["1"]);
   });
+
+  it("inserts Brazil's mobile '9' when missing (inbound wa_id form)", () => {
+    // wa_id form: 55 (cc) + 41 (DDD) + 8-digit subscriber, no mobile 9.
+    const out = phoneVariants("554198308282");
+    expect(out).toContain("5541998308282");
+  });
+
+  it("removes Brazil's mobile '9' when present (manually-entered form)", () => {
+    // Manually-entered form: 55 (cc) + 41 (DDD) + 9-digit subscriber
+    // starting with 9.
+    const out = phoneVariants("5541998308282");
+    expect(out).toContain("554198308282");
+  });
+
+  it("does not touch non-Brazilian numbers", () => {
+    const out = phoneVariants("14155551212");
+    expect(out).not.toContain("141955551212");
+  });
 });
 
 describe("isRecipientNotAllowedError", () => {

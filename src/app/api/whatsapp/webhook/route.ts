@@ -13,6 +13,7 @@ import {
   handleTemplateWebhookChange,
   isTemplateWebhookField,
 } from '@/lib/whatsapp/template-webhook'
+import { sendTelegramMessage, buildNewMessageAlertText } from '@/lib/telegram/notify'
 
 // The `after()` callback in POST runs within this route's max duration.
 // Inbound processing can fan out to per-media Meta verification calls, so
@@ -822,6 +823,46 @@ async function processMessage(
         interactive_reply_id: interactiveReplyId ?? undefined,
       },
     }).catch((err) => console.error('[automations] dispatch failed:', err))
+  }
+
+  // Telegram push notification for whichever agent is now assigned to
+  // this conversation — re-fetched (not the `conversation` var captured
+  // above) because the automations loop just ran and may have just set
+  // assigned_agent_id for the first time (e.g. the round-robin
+  // assign_conversation step on first_inbound_message). Fires on every
+  // inbound message, not just the first, so an agent mid-conversation
+  // still gets pinged with the tab closed. Best-effort: never blocks or
+  // fails the webhook — a Telegram outage or an agent who never linked
+  // their chat id is not an error condition.
+  try {
+    const { data: freshConv } = await supabaseAdmin()
+      .from('conversations')
+      .select('assigned_agent_id')
+      .eq('id', conversation.id)
+      .maybeSingle()
+    const assignedAgentId = freshConv?.assigned_agent_id
+    if (assignedAgentId) {
+      const { data: agentProfile } = await supabaseAdmin()
+        .from('profiles')
+        .select('telegram_chat_id')
+        .eq('user_id', assignedAgentId)
+        .maybeSingle()
+      if (agentProfile?.telegram_chat_id) {
+        const siteUrl =
+          process.env.NEXT_PUBLIC_SITE_URL || 'https://wacrm.sunnesul.com.br'
+        const preview = inboundText.trim() || `[${message.type}]`
+        await sendTelegramMessage(
+          agentProfile.telegram_chat_id,
+          buildNewMessageAlertText(contactName || senderPhone, preview),
+          {
+            buttonText: 'Abrir conversa',
+            buttonUrl: `${siteUrl}/inbox?c=${conversation.id}`,
+          }
+        )
+      }
+    }
+  } catch (err) {
+    console.error('[webhook] telegram notify failed:', err)
   }
 
   // AI auto-reply. Runs only for plain-text inbound the deterministic

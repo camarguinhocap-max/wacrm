@@ -45,6 +45,14 @@ export interface Profile {
    * `@/lib/auth/roles` rather than comparing this string directly.
    */
   account_role?: AccountRole;
+  /**
+   * Telegram chat id (from the Bot API's getUpdates) this teammate
+   * linked so the WhatsApp webhook can push a "new message" alert to
+   * their phone even when wacrm isn't open. Opt-in — null until the
+   * user pastes it in Settings → Your profile. See
+   * `037_profiles_telegram_chat_id.sql` and `src/lib/telegram/notify.ts`.
+   */
+  telegram_chat_id?: string | null;
   created_at: string;
 }
 

@@ -1522,6 +1522,8 @@
       "displayName": "Display name",
       "email": "Email",
       "emailChangeHint": "Check the inbox for <bold>{oldEmail}</bold> and <bold>{newEmail}</bold> — both need to confirm before the change takes effect.",
+      "telegramChatId": "Telegram chat ID (optional)",
+      "telegramChatIdHint": "Get a WhatsApp message alert on Telegram even when wacrm is closed. Message our bot on Telegram, then ask an admin for your chat ID and paste it here.",
       "accountDetails": "Account details",
       "role": "Role",
       "joined": "Joined",
