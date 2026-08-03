@@ -39,6 +39,18 @@ ENV NEXT_PUBLIC_SUPABASE_URL=$NEXT_PUBLIC_SUPABASE_URL \
     NEXT_PUBLIC_APP_LOCALE=$NEXT_PUBLIC_APP_LOCALE \
     NEXT_TELEMETRY_DISABLED=1
 
+# V8 auto-sizes its heap ceiling off the container's physical RAM alone
+# (it can't see swap). On this VPS (954MB RAM) that works out to a
+# ~490MB old-space limit — confirmed by a real build crash: "FATAL
+# ERROR: Reached heap limit Allocation failed - JavaScript heap out of
+# memory" after ~800s, well before the process actually ran out of
+# addressable memory (the VPS has 2GB of swap sitting unused at the
+# time of the crash). Raising the ceiling explicitly lets webpack use
+# that swap instead of hitting a wall the OS never actually imposed.
+# 2560MB leaves headroom under 954MB RAM + 2GB swap for the OS and
+# npm/node's own non-heap overhead.
+ENV NODE_OPTIONS=--max-old-space-size=2560
+
 RUN npm run build
 
 # ---------------------------------------------------------------
