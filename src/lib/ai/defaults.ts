@@ -13,6 +13,10 @@ import type { AiProvider } from './types'
 export const AI_PROVIDER_DEFAULT_MODEL: Record<AiProvider, string> = {
   openai: 'gpt-5.4-mini',
   anthropic: 'claude-haiku-4-5-20251001',
+  // Fast + cheap Llama on Groq's LPU inference. Check
+  // console.groq.com/docs/models for the current catalog — like the
+  // other defaults, this is only a starting point, not a hard allow-list.
+  groq: 'llama-3.3-70b-versatile',
 }
 
 /**

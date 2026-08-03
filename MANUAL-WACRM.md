@@ -2,7 +2,9 @@
 
 Registro de tudo que foi configurado e feito no CRM de WhatsApp (wacrm) para a Sunne Sul. Use como referência caso precise mexer em algo de novo ou repassar para outra pessoa.
 
-Última atualização: 01/08/2026
+Última atualização: 03/08/2026
+
+> ⚠️ **Prioridade atual (03/08/2026):** há um bug em aberto (campo "Telegram Chat ID" some em Configurações → Seu perfil) que está sendo investigado. Por decisão do usuário, **outras atualizações/deploys ficam em standby até esse problema ser resolvido**. Ver seção 11 para o diagnóstico completo e o que falta fazer.
 
 ---
 
@@ -29,6 +31,13 @@ Registro de tudo que foi configurado e feito no CRM de WhatsApp (wacrm) para a S
 7. Número +55 41 8775-7984 migrado para a WABA da Sunne Sul, com App Secret e token configurados no wacrm
 
 **Pendente:** configurar domínio próprio e SSL customizado (hoje o sistema roda no domínio padrão do EasyPanel, `*.easypanel.host`).
+
+### Especificação real do VPS (confirmada) e por que ele é lento
+Confirmado via metadata do próprio Oracle Cloud (`http://169.254.169.254/opc/v2/instance/`): o VPS é um `VM.Standard.E2.1.Micro` do plano **Always Free** — **1 OCPU (2 vCPU threads por hyperthreading), 954MB de RAM**, região São Paulo (`sa-saopaulo-1`). É essa configuração modesta que deixa o build/deploy lento, não é um problema de código.
+
+**Tentativa de upgrade gratuito (Ampere A1) — abandonada:** o Oracle Always Free também oferece um plano Ampere A1 (ARM, até 2 OCPU/12GB desde jun/2026 — antes era 4 OCPU/24GB). Tentamos criar uma instância Ampere A1 duas vezes (4 OCPU/24GB e depois 2 OCPU/12GB) e as duas vezes deu erro **"Out of host capacity"** — problema conhecido e comum do Oracle nesse plano gratuito. Recursos Always Free só podem ser criados na região "home" da conta (São Paulo, sem alternativa de trocar de região de graça), e São Paulo só tem 1 availability domain, então não há como contornar sem pagar. **Decisão do usuário: desistir do Ampere A1 e continuar otimizando a VM atual de 1GB.**
+
+**Ajuste no build (Dockerfile) por causa da RAM baixa:** o build do Next.js estava dando `JavaScript heap out of memory` (V8 calcula o limite de heap com base na RAM física, ~490MB nessa VM). Primeiro ajuste (`NODE_OPTIONS=--max-old-space-size=2560`) evitou o crash mas causou **swap thrashing** (40+ min de build usando só ~12 min de CPU real, resto perdido em I/O de swap). Ajustado para **1024MB** (`Dockerfile`, stage `builder`) — meio-termo documentado direto no comentário do Dockerfile. Commit: `6ee354d`.
 
 ### Observação sobre quedas do site
 Já aconteceu do site ficar fora do ar por um problema na camada de proxy do EasyPanel (não é o código do app nem o VPS). Se isso acontecer de novo:
@@ -181,10 +190,104 @@ Total de 5 automações novas pra cobrir todos os cliques:
 
 Também adicionei a variável de ambiente `META_APP_ID` no EasyPanel (necessária pra upload de imagem em template) e reimplantei o app — essa parte já está ativa em produção, independente do git.
 
-## 9. Pendências gerais
+## 9. Notificações via Telegram
 
-- [ ] Apagar `D:\CRM\wacrm\.git\index.lock` (arquivo de lock travado) antes de usar git de novo
-- [ ] Push das 3 correções pendentes: "Sample values" nos Templates (commit local `dfa7121`), botões de template não disparando automação e Flow disparando junto com automação de botão (últimas duas no mesmo `webhook/route.ts`, ainda não commitadas)
+Cada atendente pode receber um aviso no Telegram sempre que chega uma mensagem nova no WhatsApp (útil pra não depender de ficar olhando o wacrm o tempo todo).
+
+### Como funciona
+1. Existe um bot no Telegram: **`@sunnesul_avisos_bot`**, com o token configurado no wacrm (variável de ambiente).
+2. Cada atendente precisa: abrir uma conversa com o bot no Telegram, mandar qualquer mensagem, e então alguém com acesso ao Supabase pega o `chat_id` gerado (via API `getUpdates` do bot) e salva no perfil dele.
+3. O `chat_id` fica salvo na coluna `telegram_chat_id` da tabela `profiles` (migration dedicada) e também deveria aparecer/ser editável em **Configurações → Seu perfil**, campo "Telegram Chat ID".
+4. Quando chega mensagem nova no webhook do WhatsApp, o wacrm dispara um envio pro Telegram do(s) atendente(s) com `telegram_chat_id` preenchido.
+
+### Status
+- **Funciona em produção** — confirmado em 03/08/2026 (teste real recebido no Telegram do camarguinhocap@gmail.com, `chat_id 7340357750`).
+- **Falta:** pegar o `chat_id` do segundo atendente (jrcorretorjr@gmail.com) — ele precisa mandar mensagem pro bot `@sunnesul_avisos_bot` primeiro.
+- **Bug cosmético em aberto:** ver seção 11 abaixo — o campo na tela de Configurações não mostra o valor salvo, mesmo a notificação funcionando.
+
+---
+
+## 10. AI Agents — assistente de IA (bring-your-own-key)
+
+Local no wacrm: **AI Agents** (menu lateral), abas Playground / Setup / Usage.
+
+### O que é
+Módulo de IA embutido no wacrm: você conecta sua própria chave de API (não é uma feature paga do wacrm) e ela passa a alimentar dois recursos:
+1. **Rascunho de resposta ("Draft with AI")** — botão na Inbox, o atendente humano revisa e envia.
+2. **Auto-resposta** — o bot responde sozinho mensagens novas que não caem em nenhum Flow e não têm atendente atribuído, até um limite configurável (`Max auto-replies per conversation`), passando pra fila humana quando não sabe responder ou atinge o limite.
+
+Tem também uma "Embeddings key" opcional (chave da OpenAI, mesmo que o provedor de chat seja outro) que liga busca semântica na base de conhecimento — sem ela, a busca é só por palavra-chave.
+
+### Provedores suportados
+- **OpenAI**
+- **Anthropic (Claude)**
+- **Groq** — adicionado em 03/08/2026. A API da Groq é compatível com o formato da OpenAI (mesmo request/response, só muda a URL base e a chave), então foi uma adição pequena e de baixo risco: `src/lib/ai/providers/groq.ts` reaproveita a mesma lógica do adapter OpenAI (`generateOpenAiCompatible` em `shared.ts`) apontando para `https://api.groq.com/openai/v1/chat/completions`. Chave da Groq tem prefixo `gsk_...`. Modelo padrão sugerido: `llama-3.3-70b-versatile` (conferir catálogo atual em console.groq.com/docs/models — o campo de modelo é texto livre, não trava numa lista).
+- **Vale ter em mente escolhendo o provedor:** Groq é bom pra respostas rápidas/baratas (hardware próprio, latência baixa); OpenAI/Anthropic tendem a ter modelos mais "espertos" pra contexto de negócio complexo. Pra WhatsApp de atendimento (respostas curtas), Groq costuma ser suficiente e mais barato.
+- **Migration:** `038_ai_groq_provider.sql` — já aplicada no Supabase, alarga o `CHECK` de `provider` nas tabelas `ai_configs` e `ai_usage_log` pra aceitar `'groq'` além de `'openai'`/`'anthropic'`.
+- **Pendente:** commit + push + deploy dessas mudanças de código (ver seção 12).
+
+### Recomendação de configuração pra Sunne Sul
+No campo "Business context & instructions", ser explícito sobre o que a IA **não pode** prometer — percentual de desconto, prazo de contrato, valores — e mandar isso pra um humano (fila `__queue__`). Sugestão: testar primeiro no **Playground** com "Auto-reply" desligado (só rascunho) antes de ligar resposta automática de verdade.
+
+---
+
+## 11. Problema em aberto — campo "Telegram Chat ID" aparece vazio em Configurações → Seu perfil
+
+**Prioridade atual do projeto.** Outras atualizações/deploys estão em standby até isso ser resolvido (decisão do usuário em 03/08/2026).
+
+### Sintoma
+Em **Configurações → Seu perfil**, o campo "Telegram Chat ID" aparece **vazio**, mesmo o valor estando salvo corretamente no banco (`profiles.telegram_chat_id = "7340357750"` para camarguinhocap@gmail.com, confirmado via SQL direto no Supabase).
+
+### O que já foi descartado como causa
+- **Não é problema de dado.** Confirmado via SQL no Supabase que o valor está lá e corretamente vinculado (`profiles.user_id` = `auth.users.id`).
+- **Não é bug no componente do formulário.** `src/components/settings/profile-form.tsx` já lê e salva `profile.telegram_chat_id` corretamente (`.eq('user_id', user.id)`, coluna certa).
+- **Não é bug de código-fonte.** `src/hooks/use-auth.tsx` (branch `main` no GitHub) já faz o `select` incluindo `telegram_chat_id` e já monta o objeto `profile` com esse campo.
+- **Não é cache do navegador.** Testado com query param cache-busting + hard reload, campo continuou vazio.
+
+### Hipótese principal (não confirmada)
+O **bundle JS publicado em produção está desatualizado** em relação ao código-fonte atual — a requisição real ao Supabase feita pelo site em produção (inspecionada via DevTools/Network) **não inclui `telegram_chat_id`** no `select=`, o que só acontece se o JS rodando ainda for de uma versão anterior ao fix. Isso é estranho porque o container no EasyPanel aparecia como "criado há poucos minutos" (deploy recente) — essa contradição não foi resolvida.
+
+Outra pista secundária, não crítica: a interface TypeScript `Profile` em `use-auth.tsx` não declara o campo `telegram_chat_id` (o código funciona em runtime porque `next.config.ts` tem `typescript: { ignoreBuildErrors: true }`), mas isso não explica sozinho o bundle desatualizado.
+
+### O que foi tentado para confirmar a hipótese (e travou)
+Tentativa de entrar via **Console do servidor no EasyPanel** (Servidor → Console — shell root real na VPS) e rodar, dentro do container do app:
+```
+grep -rl telegram_chat_id /app/.next/static
+cat /app/.next/BUILD_ID
+```
+para ver se o texto `telegram_chat_id` está mesmo presente no JS publicado.
+
+**Isso não foi possível de terminar.** O console web do EasyPanel (baseado em xterm.js) está **engolindo espaços entre palavras** ao digitar comandos, provavelmente por causa da carga/lentidão da própria VPS (1 OCPU, RAM baixa — ver seção 2). Tentativas feitas sem sucesso:
+- Digitar palavra por palavra intercalando `space` + espera (1-4s) — ainda perdeu espaços.
+- Codificar o comando em base64 e tentar `echo <base64> | base64 -d | bash` para evitar espaços no comando sensível — o próprio comando de decodificação também perdeu espaços (`base64-d` colado).
+- Copiar via clipboard (`navigator.clipboard` e `document.execCommand('copy')`) para colar de uma vez só — bloqueado pela página (sem permissão de clipboard).
+
+### Próximos passos sugeridos (para quando isso for retomado)
+1. Tentar o diagnóstico via **SSH direto** (cliente de terminal de verdade, não o console web do EasyPanel) — deve evitar o bug de espaços perdidos.
+2. Se confirmar que o bundle está desatualizado: forçar um **rebuild sem cache** no EasyPanel (limpar cache do builder Docker) e reimplantar.
+3. Se o rebuild limpo não resolver: verificar se há alguma camada de cache (CDN/proxy do EasyPanel) servindo JS antigo mesmo com container novo — checar cabeçalhos `Cache-Control` da resposta do JS bundle (não confundir com o `Cache-Control` das rotas de API/páginas, que já foi checado e está ok em `next.config.ts`).
+4. Depois de corrigido: também declarar `telegram_chat_id` na interface `Profile` em `use-auth.tsx` (ajuste de tipagem, cosmético, não bloqueia nada).
+
+---
+
+## 12. Pendências gerais
+
+**🔴 Prioridade máxima (em standby até resolver):**
+- [ ] Descobrir por que o campo "Telegram Chat ID" aparece vazio em Configurações → Seu perfil, mesmo salvo no banco — ver diagnóstico completo e próximos passos na seção 11. Outras tarefas abaixo ficam pausadas até isso ser resolvido.
+
+**AI Agents:**
+- [ ] Commit + push + deploy do suporte a Groq como provedor de IA (código pronto localmente em 03/08/2026: migration `038_ai_groq_provider.sql` já aplicada no Supabase; arquivos alterados: `src/lib/ai/types.ts`, `src/lib/ai/providers/shared.ts`, `src/lib/ai/providers/openai.ts`, `src/lib/ai/providers/groq.ts` (novo), `src/lib/ai/generate.ts`, `src/lib/ai/defaults.ts`, `src/lib/ai/config.ts`, `src/app/api/ai/config/route.ts`, `src/app/api/ai/test/route.ts`, `src/components/settings/ai-config.tsx`, `messages/en.json`). Não foi possível rodar a suíte de testes localmente (ambiente Linux do sandbox não roda o `node_modules` instalado pra Windows — erro de binding nativo do rolldown/vitest); revisão foi manual, sem testes automatizados confirmando.
+- [ ] Depois do deploy: testar o provedor Groq de ponta a ponta no Playground com uma chave real (`gsk_...`) antes de habilitar em produção.
+
+**Telegram:**
+- [x] ~~Obter o `chat_id` do segundo atendente~~ — Jr Mulbauer mandou "oi" pro bot em 03/08/2026 e o `chat_id` foi capturado via `getUpdates` da API do Telegram: **`8761001933`**
+- [ ] Salvar `8761001933` no perfil do Jr. **Não precisa esperar o bug da seção 10 ser corrigido** — o bug é só na exibição/leitura do campo (fetch), o salvamento (`profile-form.tsx` → `.update(...).eq('user_id', ...)`) funciona normalmente. Caminho mais simples: o próprio Jr entra em Configurações → Seu perfil e cola `8761001933` no campo Telegram Chat ID e salva. Alternativa: salvar direto via SQL no Supabase (MCP do Supabase estava desconectado no momento desse registro).
+
+**Já resolvidas (mantido aqui só como histórico — confirmado em 03/08/2026 via `git log`/`git status`, branch `main` sem pendência de push):**
+- [x] ~~Apagar `.git\index.lock`~~ — lock não existe mais
+- [x] ~~Push das 3 correções pendentes (Sample values nos Templates, botões de template, Flow x automação de botão)~~ — tudo commitado e sincronizado com `origin/main`
+
+**Outras pendências:**
 - [ ] Apagar/limpar templates de teste que não serão usados de verdade (`teste_marketing_var1/var2/simples`, `oferta_energia_sunne` — todos já podem ser apagados, aprovação não bloqueia mais)
 - [ ] Configurar domínio próprio e SSL (item #9 da lista de infraestrutura)
 - [ ] Decidir sobre o Catálogo de produtos (desvincular de outro lugar ou criar novo)
@@ -193,7 +296,7 @@ Também adicionei a variável de ambiente `META_APP_ID` no EasyPanel (necessári
 
 ---
 
-## 10. Onde encontrar cada coisa no wacrm
+## 13. Onde encontrar cada coisa no wacrm
 
 | O que | Onde |
 |---|---|
@@ -203,3 +306,5 @@ Também adicionei a variável de ambiente `META_APP_ID` no EasyPanel (necessári
 | Importar contatos | Contatos → Importar |
 | Mandar primeira mensagem para um contato | Dentro do contato, na tela de conversa (Inbox) |
 | Fluxos de triagem/menu | Flows (BETA) |
+| Telegram Chat ID (aviso de mensagem nova) | Configurações → Seu perfil (bug em aberto, seção 11) |
+| Assistente de IA (rascunho/auto-resposta) | AI Agents (menu lateral) |

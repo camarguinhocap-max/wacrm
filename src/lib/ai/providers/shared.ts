@@ -1,4 +1,5 @@
-import { AiError, type AiUsage, type ChatMessage } from '../types'
+import { AiError, type AiUsage, type ChatMessage, type ProviderResult } from '../types'
+import { MAX_OUTPUT_TOKENS } from '../defaults'
 
 // ============================================================
 // Bits shared by the OpenAI + Anthropic adapters.
@@ -106,4 +107,67 @@ export function mergeConsecutive(messages: ChatMessage[]): ChatMessage[] {
     }
   }
   return out
+}
+
+interface OpenAiCompatibleResponse {
+  choices?: { message?: { content?: string } }[]
+  usage?: {
+    prompt_tokens?: number
+    completion_tokens?: number
+    total_tokens?: number
+  }
+}
+
+/**
+ * Call an OpenAI Chat Completions-shaped endpoint — used directly by
+ * OpenAI, and by any provider that exposes an OpenAI-compatible API
+ * (e.g. Groq: same request/response shape, different base URL and
+ * key). `label` is only used to name the provider in error messages.
+ */
+export async function generateOpenAiCompatible(
+  args: ProviderArgs,
+  opts: { url: string; label: string },
+): Promise<ProviderResult> {
+  const { apiKey, model, systemPrompt, messages, timeoutMs } = args
+  const { url, label } = opts
+
+  let res: Response
+  try {
+    res = await fetch(url, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          ...mergeConsecutive(messages),
+        ],
+        max_completion_tokens: MAX_OUTPUT_TOKENS,
+      }),
+      signal: AbortSignal.timeout(timeoutMs),
+    })
+  } catch (err) {
+    throw toNetworkError(err)
+  }
+
+  if (!res.ok) {
+    throw await providerHttpError(label, res)
+  }
+
+  const data = (await res.json().catch(() => null)) as OpenAiCompatibleResponse | null
+  const text = data?.choices?.[0]?.message?.content
+  if (!text || typeof text !== 'string' || !text.trim()) {
+    throw new AiError(`${label} returned an empty response.`, {
+      code: 'empty_response',
+    })
+  }
+  const usage = normalizeUsage({
+    prompt: data?.usage?.prompt_tokens,
+    completion: data?.usage?.completion_tokens,
+    total: data?.usage?.total_tokens,
+  })
+  return { text, usage }
 }
