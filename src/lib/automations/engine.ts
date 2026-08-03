@@ -485,15 +485,40 @@ async function runStep(step: AutomationStep, args: ExecuteArgs): Promise<string>
       if (!args.contactId) throw new Error('assign_conversation needs a contact')
       let agentId = cfg.agent_id
       if (cfg.mode === 'round_robin') {
-        // Pick any member of the account. The existing implementation
-        // only ever returned the automation's author; preserving that
-        // shape until a real round-robin algorithm replaces it.
+        // Real round-robin across every member of the account, ordered by
+        // `profiles.created_at` for a stable, deterministic sequence (so
+        // "agent 1" / "agent 2" always means the same two people run in
+        // the same order). No dedicated counter table: we derive "whose
+        // turn is next" from whichever agent most recently received an
+        // assignment in this account, then advance one slot. First-ever
+        // assignment (no prior `assigned_agent_id` anywhere) starts at
+        // the first agent in the list.
         const { data: profiles } = await db
           .from('profiles')
           .select('user_id')
           .eq('account_id', args.automation.account_id)
-          .limit(1)
-        agentId = profiles?.[0]?.user_id
+          .order('created_at', { ascending: true })
+        const agentIds = (profiles ?? [])
+          .map((p) => p.user_id)
+          .filter((id): id is string => Boolean(id))
+
+        if (agentIds.length <= 1) {
+          agentId = agentIds[0]
+        } else {
+          const { data: lastAssigned } = await db
+            .from('conversations')
+            .select('assigned_agent_id')
+            .eq('account_id', args.automation.account_id)
+            .not('assigned_agent_id', 'is', null)
+            .order('updated_at', { ascending: false })
+            .limit(1)
+            .maybeSingle()
+
+          const lastIndex = lastAssigned?.assigned_agent_id
+            ? agentIds.indexOf(lastAssigned.assigned_agent_id)
+            : -1
+          agentId = agentIds[(lastIndex + 1) % agentIds.length]
+        }
       }
       if (!agentId) return 'no agent resolved'
       await db
