@@ -2,6 +2,10 @@
 
 # dependencies
 /node_modules
+# scratch dir from a debugging session — leftover empty npm cache
+# files the sandbox's mount wouldn't let us delete; harmless, ignored
+# rather than committed
+/.npm-cache-tmp
 /.pnp
 .pnp.*
 .yarn/*

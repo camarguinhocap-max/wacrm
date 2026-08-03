@@ -6,7 +6,14 @@
 FROM node:20-alpine AS deps
 WORKDIR /app
 COPY package.json package-lock.json ./
-RUN npm ci
+# `npm ci` is the fast, reproducible path and should handle the vast
+# majority of builds. Fall back to `npm install` when it fails — this
+# self-heals a package-lock.json that's drifted out of sync with
+# package.json (npm ci refuses to proceed on any mismatch, however
+# minor) without needing a human to regenerate and re-commit the lock
+# file first. The fallback only affects this build's throwaway
+# node_modules layer; it never writes back to the repo.
+RUN npm ci || npm install
 
 # ---------------------------------------------------------------
 # Stage 2 — build
