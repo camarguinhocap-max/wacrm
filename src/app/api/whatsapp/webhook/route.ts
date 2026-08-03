@@ -47,6 +47,16 @@ interface WhatsAppMessage {
   location?: { latitude: number; longitude: number; name?: string; address?: string }
   reaction?: { message_id: string; emoji: string }
   /**
+   * Set when the customer taps a QUICK_REPLY button on a message
+   * TEMPLATE (broadcasts, or any template send outside a Flow). This is
+   * a distinct webhook shape from `interactive` below — Meta uses
+   * `type: 'button'` here, not `type: 'interactive'`. `payload` defaults
+   * to the button's text unless the sender overrode it at send time
+   * (see template-send-builder.ts), which is the common case, so this
+   * is effectively "which button did they tap".
+   */
+  button?: { text: string; payload: string }
+  /**
    * Set when the customer taps a button or list row on an interactive
    * message we sent. `button_reply.id` / `list_reply.id` is whatever id
    * we put on the button/row when sending — the Flows engine uses this
@@ -664,7 +674,17 @@ async function processMessage(
     .select('id', { count: 'exact', head: true })
     .eq('conversation_id', conversation.id)
     .eq('sender_type', 'customer')
-  const isFirstInboundMessage = (priorCustomerMsgCount ?? 0) === 0
+  // A tap on one of OUR template quick-reply buttons (message.type ===
+  // 'button') is a reply to something we sent, not a genuine cold
+  // outreach — it must never count as "first inbound message" for
+  // greeting-flow/automation purposes. Otherwise a customer's first-ever
+  // reply to a broadcast (e.g. tapping "Não tenho interesse") would
+  // simultaneously fire any first_inbound_message-triggered Flow/
+  // automation (a welcome menu), talking over — or outright suppressing,
+  // since Flow consumption mutes content-level triggers — the reply the
+  // button tap was actually supposed to produce.
+  const isFirstInboundMessage =
+    (priorCustomerMsgCount ?? 0) === 0 && message.type !== 'button'
 
   const { error: msgError } = await supabaseAdmin().from('messages').insert({
     conversation_id: conversation.id,
@@ -951,6 +971,21 @@ async function parseMessageContent(
 
     case 'reaction':
       return { ...empty, contentText: message.reaction?.emoji || null }
+
+    case 'button':
+      // Quick-reply tap on a TEMPLATE (see the `button` field comment on
+      // WhatsAppMessage above). Store the payload as interactiveReplyId
+      // so the existing `interactive_reply` automation trigger (which
+      // matches on this field) fires for template button taps too, not
+      // just Flow-sent interactive messages.
+      if (message.button) {
+        return {
+          ...empty,
+          contentText: message.button.text || null,
+          interactiveReplyId: message.button.payload || message.button.text || null,
+        }
+      }
+      return empty
 
     case 'interactive': {
       // The customer tapped a reply button or a list row on a message
