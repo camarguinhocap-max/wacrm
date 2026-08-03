@@ -7,7 +7,18 @@
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-sans);
+  /* System font stack — was next/font/google's Inter, but that pulls
+     the font files from Google's CDN at *build* time. On a low-RAM VPS
+     already thrashing swap during `next build`, that network fetch has
+     intermittently hung the build with no further log output (retries
+     exhausted, no error surfaced — see commit "perf: build de producao
+     via webpack..." incident). A system stack looks close to Inter on
+     every OS Sunne Sul's team actually uses and removes the dependency
+     entirely — no fetch, no flakiness, one less thing that can stall a
+     deploy. */
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, "Noto Sans", sans-serif, "Apple Color Emoji",
+    "Segoe UI Emoji";
   --font-mono: var(--font-geist-mono);
   --font-heading: var(--font-sans);
   --color-sidebar-ring: var(--sidebar-ring);
