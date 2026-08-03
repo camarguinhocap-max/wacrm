@@ -43,13 +43,23 @@ ENV NEXT_PUBLIC_SUPABASE_URL=$NEXT_PUBLIC_SUPABASE_URL \
 # (it can't see swap). On this VPS (954MB RAM) that works out to a
 # ~490MB old-space limit — confirmed by a real build crash: "FATAL
 # ERROR: Reached heap limit Allocation failed - JavaScript heap out of
-# memory" after ~800s, well before the process actually ran out of
-# addressable memory (the VPS has 2GB of swap sitting unused at the
-# time of the crash). Raising the ceiling explicitly lets webpack use
-# that swap instead of hitting a wall the OS never actually imposed.
-# 2560MB leaves headroom under 954MB RAM + 2GB swap for the OS and
-# npm/node's own non-heap overhead.
-ENV NODE_OPTIONS=--max-old-space-size=2560
+# memory" after ~800s.
+#
+# First attempt raised this to 2560MB to let webpack lean on the 2GB
+# swap file instead of hitting a wall the OS never actually imposed.
+# That backfired: confirmed via the VPS's own console (`free -h` /
+# `ps aux`) that the build process didn't crash, but it also barely
+# progressed — 40+ minutes of wall-clock time bought only ~12 minutes
+# of actual CPU time, the rest lost to swap I/O wait, with 1.2GB of
+# the 2GB swap file already in use. A ceiling that high just trades a
+# fast crash for a build that may never realistically finish.
+#
+# 1024MB is a middle ground: comfortably above the ~490MB that
+# crashed, but far below the 2560MB that thrashed. Some swap use is
+# still expected (peak RSS + Node's own non-heap overhead can exceed
+# 954MB of physical RAM on this box), but nowhere near the level that
+# turns the build into an I/O-bound crawl.
+ENV NODE_OPTIONS=--max-old-space-size=1024
 
 RUN npm run build
 
