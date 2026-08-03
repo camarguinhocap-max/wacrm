@@ -138,7 +138,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const { data, error } = await supabase
         .from("profiles")
         .select(
-          "id, full_name, email, avatar_url, role, beta_features, account_id, account_role",
+          "id, full_name, email, avatar_url, role, beta_features, account_id, account_role, telegram_chat_id",
         )
         .eq("user_id", userId)
         .maybeSingle();
@@ -212,6 +212,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           beta_features: data.beta_features ?? [],
           account_id: data.account_id ?? null,
           account_role: accountRole,
+          telegram_chat_id: data.telegram_chat_id ?? null,
         });
         setAccount(accountRow);
       } else {
