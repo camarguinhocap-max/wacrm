@@ -91,6 +91,10 @@ interface WhatsAppWebhookEntry {
         status: string
         timestamp: string
         recipient_id: string
+        // Present when status === 'failed'. Meta's async delivery
+        // pipeline reports why — see WHATSAPP_UNDELIVERABLE_ERROR_CODE
+        // below for how we use this.
+        errors?: Array<{ code: number; title?: string; message?: string }>
       }>
     }
     field: string
@@ -335,6 +339,25 @@ const RECIPIENT_STATUS_LADDER = [
   'replied',
 ] as const
 
+// Meta's generic "Message Undeliverable" error. It's a catch-all bucket —
+// covers a number that was never on WhatsApp, one that has since blocked
+// this business, one that hasn't accepted WhatsApp's latest ToS, or an
+// outdated WhatsApp client — but every one of those cases is equally
+// "don't bother sending here again automatically", so we tag on all of
+// them under one name rather than trying to split hairs. Source:
+// https://developers.facebook.com/docs/whatsapp/cloud-api/support/error-codes
+const WHATSAPP_UNDELIVERABLE_ERROR_CODE = 131026
+
+// Name of the tag applied when a template send comes back undeliverable.
+// Cleared automatically the moment the contact ever messages in (proof
+// they do have WhatsApp) — see clearNoWhatsAppTag. There is deliberately
+// no automatic retry: re-trying known-bad numbers on a schedule is the
+// same "sending to people who never opted in" pattern that risks the
+// account's quality rating, so re-including a tagged contact in a future
+// broadcast is left as a manual decision (Step 2 of the broadcast wizard
+// already supports excluding a tag from the audience).
+const NO_WHATSAPP_TAG_NAME = 'Sem WhatsApp'
+
 function ladderLevel(s: string): number {
   const idx = (RECIPIENT_STATUS_LADDER as readonly string[]).indexOf(s)
   return idx < 0 ? -1 : idx
@@ -365,6 +388,7 @@ async function handleStatusUpdate(status: {
   status: string
   timestamp: string
   recipient_id: string
+  errors?: Array<{ code: number; title?: string; message?: string }>
 }) {
   // 1) Mirror onto messages (legacy behavior) — Meta's status values
   //    already match the CHECK constraint on messages.status. No
@@ -422,16 +446,21 @@ async function handleStatusUpdate(status: {
   // 3) Webhook fan-out for messages we store (inbox / API sends).
   //    Runs last so a slow subscriber can't delay the mirrors above.
   //    Bounded to one row (message_id isn't unique) purely to resolve
-  //    the owning account for delivery.
+  //    the owning account for delivery. Also carries contact_id so the
+  //    "undeliverable" tagging below (4) can reuse this same lookup
+  //    instead of a second round-trip.
   const { data: msgRow } = await supabaseAdmin()
     .from('messages')
-    .select('conversation_id, conversations(account_id)')
+    .select('conversation_id, conversations(account_id, contact_id)')
     .eq('message_id', status.id)
     .limit(1)
     .maybeSingle()
 
   if (msgRow) {
-    const conv = msgRow.conversations as { account_id: string } | null
+    const conv = msgRow.conversations as {
+      account_id: string
+      contact_id: string
+    } | null
     const accountId = conv?.account_id
     if (accountId) {
       await dispatchWebhookEvent(
@@ -444,7 +473,128 @@ async function handleStatusUpdate(status: {
           status: status.status,
         }
       )
+
+      // 4) Tag the contact when Meta reports this send as permanently
+      //    undeliverable (see WHATSAPP_UNDELIVERABLE_ERROR_CODE above).
+      //    Best-effort — a failure here must never surface as a webhook
+      //    processing error.
+      if (
+        status.status === 'failed' &&
+        conv?.contact_id &&
+        status.errors?.some(
+          (e) => e.code === WHATSAPP_UNDELIVERABLE_ERROR_CODE
+        )
+      ) {
+        await tagContactNoWhatsApp(accountId, conv.contact_id)
+      }
     }
+  }
+}
+
+/**
+ * Applies the "Sem WhatsApp" tag to a contact after a template send
+ * comes back undeliverable (see WHATSAPP_UNDELIVERABLE_ERROR_CODE).
+ * Find-or-creates the tag for the account, then links it — silently
+ * no-ops if the contact is already tagged (unique constraint on
+ * `contact_tags(contact_id, tag_id)`). Best-effort: every failure path
+ * only logs, since a broken tag write must never take down webhook
+ * processing.
+ */
+async function tagContactNoWhatsApp(accountId: string, contactId: string) {
+  try {
+    const db = supabaseAdmin()
+
+    let { data: tag } = await db
+      .from('tags')
+      .select('id')
+      .eq('account_id', accountId)
+      .eq('name', NO_WHATSAPP_TAG_NAME)
+      .maybeSingle()
+
+    if (!tag) {
+      // Attributed to the account owner — mirrors the configOwnerUserId
+      // pattern used elsewhere in this file for automated, no-human-actor
+      // inserts that need a NOT NULL user_id FK.
+      const { data: config } = await db
+        .from('whatsapp_config')
+        .select('user_id')
+        .eq('account_id', accountId)
+        .maybeSingle()
+      if (!config) return // no config, no owner to attribute the tag to
+
+      const { data: created, error: createErr } = await db
+        .from('tags')
+        .insert({
+          account_id: accountId,
+          user_id: config.user_id,
+          name: NO_WHATSAPP_TAG_NAME,
+          color: '#6b7280', // neutral gray — this isn't a pipeline/status tag
+        })
+        .select('id')
+        .single()
+
+      if (createErr) {
+        // Lost a race with a concurrent tagging — re-resolve rather than
+        // erroring out (mirrors findOrCreateContact's race handling).
+        if (isUniqueViolation(createErr)) {
+          const { data: raced } = await db
+            .from('tags')
+            .select('id')
+            .eq('account_id', accountId)
+            .eq('name', NO_WHATSAPP_TAG_NAME)
+            .maybeSingle()
+          tag = raced
+        }
+        if (!tag) {
+          console.error('[webhook] error creating "Sem WhatsApp" tag:', createErr)
+          return
+        }
+      } else {
+        tag = created
+      }
+    }
+    if (!tag) return
+
+    const { error: linkErr } = await db
+      .from('contact_tags')
+      .insert({ contact_id: contactId, tag_id: tag.id })
+    if (linkErr && !isUniqueViolation(linkErr)) {
+      console.error('[webhook] error tagging contact as "Sem WhatsApp":', linkErr)
+    }
+  } catch (err) {
+    console.error('[webhook] tagContactNoWhatsApp failed:', err)
+  }
+}
+
+/**
+ * Clears the "Sem WhatsApp" tag the moment a contact ever messages in —
+ * an inbound message is proof they do have WhatsApp, regardless of a
+ * past undeliverable send (see tagContactNoWhatsApp). No-op when the
+ * tag doesn't exist for this account or isn't on this contact. Best-
+ * effort: swallows its own errors so a broken cleanup never blocks
+ * inbound message processing.
+ */
+async function clearNoWhatsAppTag(accountId: string, contactId: string) {
+  try {
+    const db = supabaseAdmin()
+    const { data: tag } = await db
+      .from('tags')
+      .select('id')
+      .eq('account_id', accountId)
+      .eq('name', NO_WHATSAPP_TAG_NAME)
+      .maybeSingle()
+    if (!tag) return
+
+    const { error } = await db
+      .from('contact_tags')
+      .delete()
+      .eq('contact_id', contactId)
+      .eq('tag_id', tag.id)
+    if (error) {
+      console.error('[webhook] error clearing "Sem WhatsApp" tag:', error)
+    }
+  } catch (err) {
+    console.error('[webhook] clearNoWhatsAppTag failed:', err)
   }
 }
 
@@ -593,6 +743,11 @@ async function processMessage(
   )
   if (!contactOutcome) return
   const contactRecord = contactOutcome.contact
+
+  // Any inbound message is proof this contact does have WhatsApp — clear
+  // a stale "Sem WhatsApp" tag from a past undeliverable send, if any.
+  // Fire-and-forget: best-effort, must never block/slow inbound processing.
+  void clearNoWhatsAppTag(accountId, contactRecord.id)
 
   // Find or create conversation
   const convResult = await findOrCreateConversation(

@@ -190,6 +190,26 @@ Total de 5 automações novas pra cobrir todos os cliques:
 
 Também adicionei a variável de ambiente `META_APP_ID` no EasyPanel (necessária pra upload de imagem em template) e reimplantei o app — essa parte já está ativa em produção, independente do git.
 
+## 8.2 Primeiro teste real de broadcast (04/08/2026) e tag automática "Sem WhatsApp"
+
+### Teste com 20 contatos aleatórios
+Feito em 04/08/2026 com o template `oferta_desconto_luz` (já aprovado), via a API pública do próprio wacrm (`/api/v1/broadcasts`) — mesmo caminho oficial usado pelo assistente de criação de campanha no painel. Resultado: **15 de 20 entregues** (8 entregues, 3 lidas, 1 resposta em segundos), **5 falharam**. Nenhum sinal de bloqueio/restrição na conta. Motivo mais provável das 5 falhas: número nunca teve WhatsApp (lista importada do Google Contacts, sem opt-in confirmado — ver aviso de risco discutido na conversa: dos 1.158 contatos importados, só 6 já tinham conversado antes com a Sunne Sul).
+
+Onde ver o resultado detalhado de qualquer broadcast (não aparece na Inbox — ver observação abaixo): **Campanhas/Broadcasts** no menu, ou `/broadcasts/[id]`.
+
+**Observação de comportamento (não é bug, é assim que o sistema foi desenhado):** mensagens de broadcast **nunca aparecem na conversa/Inbox do contato** — nem as enviadas pelo painel, nem pela API. Só ficam registradas na tela de Campanhas. A conversa no Inbox só nasce quando o cliente responde, e mesmo assim sem a mensagem original enviada aparecendo na thread. Se quiser mudar isso (fazer o broadcast também virar uma mensagem na conversa do contato), é uma mudança de código a parte, ainda não feita.
+
+### Tag automática "Sem WhatsApp" (implementado 04/08/2026 — pendente de push/deploy)
+Decisão: quando um envio falha porque o número não tem WhatsApp (ou casos parecidos — ver abaixo), o contato é **marcado com a tag "Sem WhatsApp"** em vez de apagado do sistema. Isso permite excluir esses contatos de campanhas futuras (o assistente de criação de broadcast no painel já suporta excluir por tag — Step 2, "audience") sem perder o cadastro.
+
+Como funciona (arquivo `src/app/api/whatsapp/webhook/route.ts`):
+- A Meta reporta entrega malsucedida de forma assíncrona (webhook de status, código de erro **131026 "Message Undeliverable"**). Esse código é um "balaio" — cobre número sem WhatsApp, número que bloqueou a empresa, conta sem aceitar os novos Termos da Meta, ou app do WhatsApp desatualizado no aparelho do cliente. Tratamos todos igual: não vale a pena reenviar automaticamente pra nenhum desses casos.
+- Quando isso acontece, o contato recebe a tag "Sem WhatsApp" (criada automaticamente na primeira vez que precisar, por conta).
+- **A tag é removida automaticamente** assim que o contato manda qualquer mensagem pra Sunne Sul — a mensagem já prova que ele tem WhatsApp de novo.
+- **Não existe reenvio automático** pra quem está com essa tag — decisão deliberada, pra não repetir o mesmo padrão de risco de bloqueio (mandar pra quem já falhou antes, sem confirmação de que a situação mudou). Se um dia quiserem tentar de novo com esses contatos, é uma decisão manual (tirar a tag ou não usá-la como filtro de exclusão numa campanha).
+
+**Pendente:** essa mudança está só no código local — falta commit + push + deploy (ver pendências, seção 12).
+
 ## 9. Notificações via Telegram
 
 Cada atendente pode receber um aviso no Telegram sempre que chega uma mensagem nova no WhatsApp (útil pra não depender de ficar olhando o wacrm o tempo todo).
@@ -274,6 +294,9 @@ para ver se o texto `telegram_chat_id` está mesmo presente no JS publicado.
 
 **🔴 Prioridade máxima (em standby até resolver):**
 - [ ] Descobrir por que o campo "Telegram Chat ID" aparece vazio em Configurações → Seu perfil, mesmo salvo no banco — ver diagnóstico completo e próximos passos na seção 11. Outras tarefas abaixo ficam pausadas até isso ser resolvido.
+
+**Broadcast:**
+- [ ] Commit + push + deploy da tag automática "Sem WhatsApp" (código pronto em 04/08/2026, sem migration necessária — só usa as tabelas `tags`/`contact_tags` que já existiam). Arquivo alterado: `src/app/api/whatsapp/webhook/route.ts`. Ver seção 8.2 para detalhes.
 
 **AI Agents:**
 - [ ] Commit + push + deploy do suporte a Groq como provedor de IA (código pronto localmente em 03/08/2026: migration `038_ai_groq_provider.sql` já aplicada no Supabase; arquivos alterados: `src/lib/ai/types.ts`, `src/lib/ai/providers/shared.ts`, `src/lib/ai/providers/openai.ts`, `src/lib/ai/providers/groq.ts` (novo), `src/lib/ai/generate.ts`, `src/lib/ai/defaults.ts`, `src/lib/ai/config.ts`, `src/app/api/ai/config/route.ts`, `src/app/api/ai/test/route.ts`, `src/components/settings/ai-config.tsx`, `messages/en.json`). Não foi possível rodar a suíte de testes localmente (ambiente Linux do sandbox não roda o `node_modules` instalado pra Windows — erro de binding nativo do rolldown/vitest); revisão foi manual, sem testes automatizados confirmando.
