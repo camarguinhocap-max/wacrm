@@ -26,10 +26,14 @@ export function SettingsRail({
   active,
   onSelect,
   hints,
+  canEditSettings,
 }: {
   active: SettingsSection;
   onSelect: (section: SettingsSection) => void;
   hints?: Partial<Record<SettingsSection, ReactNode>>;
+  /** Admin+ flag. Sections flagged `adminOnly` in SECTION_META are
+   *  hidden from the rail when false. */
+  canEditSettings: boolean;
 }) {
   const t = useTranslations('Settings');
   const activeRef = useRef<HTMLButtonElement>(null);
@@ -57,8 +61,11 @@ export function SettingsRail({
     >
       {RAIL_GROUPS.map(({ label, group }) => {
         const items = SETTINGS_SECTIONS.filter(
-          (s) => SECTION_META[s].group === group,
+          (s) =>
+            SECTION_META[s].group === group &&
+            (!SECTION_META[s].adminOnly || canEditSettings),
         );
+        if (items.length === 0) return null;
         return (
           <div
             key={group}

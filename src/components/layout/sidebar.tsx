@@ -87,22 +87,29 @@ interface NavItem {
    * Purely informational — doesn't affect routing or access.
    */
   beta?: boolean;
+  /**
+   * When true, the row is only rendered for admin+ roles. Agents/viewers
+   * get a slimmed-down nav (Dashboard/Inbox/Notifications only) — those
+   * roles can't write to this data anyway (RLS), so hiding the entry
+   * point avoids a confusing "click it, nothing saves" dead end.
+   */
+  adminOnly?: boolean;
 }
 
 const navItems: NavItem[] = [
   { href: "/dashboard", labelKey: "dashboard", icon: LayoutDashboard },
   { href: "/inbox", labelKey: "inbox", icon: MessageSquare },
   { href: "/notifications", labelKey: "notifications", icon: Bell },
-  { href: "/contacts", labelKey: "contacts", icon: Users },
-  { href: "/pipelines", labelKey: "pipelines", icon: GitBranch },
-  { href: "/broadcasts", labelKey: "broadcasts", icon: Radio },
-  { href: "/automations", labelKey: "automations", icon: Zap },
-  { href: "/flows", labelKey: "flows", icon: Workflow, beta: true },
-  { href: "/agents", labelKey: "aiAgents", icon: Bot },
+  { href: "/contacts", labelKey: "contacts", icon: Users, adminOnly: true },
+  { href: "/pipelines", labelKey: "pipelines", icon: GitBranch, adminOnly: true },
+  { href: "/broadcasts", labelKey: "broadcasts", icon: Radio, adminOnly: true },
+  { href: "/automations", labelKey: "automations", icon: Zap, adminOnly: true },
+  { href: "/flows", labelKey: "flows", icon: Workflow, beta: true, adminOnly: true },
+  { href: "/agents", labelKey: "aiAgents", icon: Bot, adminOnly: true },
 ];
 
-const bottomNavItems = [
-  { href: "/settings", labelKey: "settings", icon: Settings },
+const bottomNavItems: NavItem[] = [
+  { href: "/settings", labelKey: "settings", icon: Settings, adminOnly: true },
 ];
 
 interface SidebarProps {
@@ -116,7 +123,15 @@ import { useTranslations } from "next-intl";
 export function Sidebar({ open = false, onClose }: SidebarProps) {
   const t = useTranslations("Sidebar");
   const pathname = usePathname();
-  const { profile, profileLoading, account, accountRole, signOut } = useAuth();
+  const { profile, profileLoading, account, accountRole, canEditSettings, signOut } =
+    useAuth();
+  // Fail closed: while the role is still resolving (or unresolved),
+  // treat the viewer as non-admin so the fuller nav never flashes in
+  // for an agent before their profile loads.
+  const visibleNavItems = navItems.filter((item) => !item.adminOnly || canEditSettings);
+  const visibleBottomNavItems = bottomNavItems.filter(
+    (item) => !item.adminOnly || canEditSettings,
+  );
   const totalUnread = useTotalUnread();
   const unreadNotifications = useUnreadNotifications();
   // Only surface the account-name strip when it actually carries
@@ -208,7 +223,7 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
         {/* Main navigation */}
         <nav className="flex-1 overflow-y-auto px-3 py-4">
           <ul className="flex flex-col gap-1">
-            {navItems.map((item) => {
+            {visibleNavItems.map((item) => {
               const isActive =
                 pathname === item.href ||
                 (item.href !== "/dashboard" && pathname.startsWith(item.href));
@@ -268,29 +283,33 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
             })}
           </ul>
 
-          <div className="my-4 border-t border-border" />
+          {visibleBottomNavItems.length > 0 ? (
+            <>
+              <div className="my-4 border-t border-border" />
 
-          <ul className="flex flex-col gap-1">
-            {bottomNavItems.map((item) => {
-              const isActive = pathname.startsWith(item.href);
-              return (
-                <li key={item.href}>
-                  <Link
-                    href={item.href}
-                    className={cn(
-                      "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors lg:py-2",
-                      isActive
-                        ? "bg-primary/10 text-primary"
-                        : "text-muted-foreground hover:bg-muted hover:text-foreground",
-                    )}
-                  >
-                    <item.icon className="h-4 w-4" />
-                    {t(item.labelKey as string)}
-                  </Link>
-                </li>
-              );
-            })}
-          </ul>
+              <ul className="flex flex-col gap-1">
+                {visibleBottomNavItems.map((item) => {
+                  const isActive = pathname.startsWith(item.href);
+                  return (
+                    <li key={item.href}>
+                      <Link
+                        href={item.href}
+                        className={cn(
+                          "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors lg:py-2",
+                          isActive
+                            ? "bg-primary/10 text-primary"
+                            : "text-muted-foreground hover:bg-muted hover:text-foreground",
+                        )}
+                      >
+                        <item.icon className="h-4 w-4" />
+                        {t(item.labelKey as string)}
+                      </Link>
+                    </li>
+                  );
+                })}
+              </ul>
+            </>
+          ) : null}
         </nav>
 
         {/* User section */}
@@ -372,18 +391,20 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
                 <User className="size-4" />
                 {t("menuProfile")}
               </DropdownMenuItem>
-              <DropdownMenuItem
-                render={
-                  <Link
-                    href="/settings?tab=whatsapp"
-                    onClick={onClose}
-                    className="text-popover-foreground focus:bg-accent focus:text-accent-foreground"
-                  />
-                }
-              >
-                <Settings className="size-4" />
-                {t("menuSettings")}
-              </DropdownMenuItem>
+              {canEditSettings ? (
+                <DropdownMenuItem
+                  render={
+                    <Link
+                      href="/settings?tab=whatsapp"
+                      onClick={onClose}
+                      className="text-popover-foreground focus:bg-accent focus:text-accent-foreground"
+                    />
+                  }
+                >
+                  <Settings className="size-4" />
+                  {t("menuSettings")}
+                </DropdownMenuItem>
+              ) : null}
               <DropdownMenuSeparator className="bg-border" />
               <DropdownMenuItem
                 onClick={signOut}
