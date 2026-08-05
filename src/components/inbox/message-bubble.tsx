@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { cn } from "@/lib/utils";
 import type { Message, MessageReaction } from "@/types";
 import {
@@ -14,6 +14,8 @@ import {
   ImageOff,
   CornerDownLeft,
   Sparkles,
+  ZoomIn,
+  ZoomOut,
 } from "lucide-react";
 import { format } from "date-fns";
 import { ReplyQuote } from "./reply-quote";
@@ -57,11 +59,71 @@ function MediaUnavailable({ label, t }: { label: string, t: ReturnType<typeof us
   );
 }
 
+const LIGHTBOX_MIN_ZOOM = 1;
+const LIGHTBOX_MAX_ZOOM = 4;
+const LIGHTBOX_ZOOM_STEP = 0.5;
+
+function clampZoom(value: number) {
+  return Math.min(LIGHTBOX_MAX_ZOOM, Math.max(LIGHTBOX_MIN_ZOOM, value));
+}
+
 function MediaImage({ url, alt }: { url: string; alt: string }) {
   const [src, setSrc] = useState<string | null>(null);
   const [error, setError] = useState(false);
   const [loading, setLoading] = useState(true);
   const [lightboxOpen, setLightboxOpen] = useState(false);
+  // Zoom/pan state for the lightbox — separate from the small thumbnail.
+  // Bill photos / documents often have fine print that's still too small
+  // even at the lightbox's "fit to screen" size, so this lets the agent
+  // zoom in further and drag around while zoomed.
+  const [zoom, setZoom] = useState(LIGHTBOX_MIN_ZOOM);
+  const [pan, setPan] = useState({ x: 0, y: 0 });
+  const [isDragging, setIsDragging] = useState(false);
+  const dragStateRef = useRef<{ startX: number; startY: number; panX: number; panY: number } | null>(null);
+
+  function resetZoom() {
+    setZoom(LIGHTBOX_MIN_ZOOM);
+    setPan({ x: 0, y: 0 });
+  }
+
+  function zoomBy(delta: number) {
+    setZoom((z) => {
+      const next = clampZoom(z + delta);
+      if (next === LIGHTBOX_MIN_ZOOM) setPan({ x: 0, y: 0 });
+      return next;
+    });
+  }
+
+  function handleWheel(e: React.WheelEvent) {
+    e.preventDefault();
+    zoomBy(e.deltaY < 0 ? LIGHTBOX_ZOOM_STEP : -LIGHTBOX_ZOOM_STEP);
+  }
+
+  function handleDoubleClick() {
+    if (zoom > LIGHTBOX_MIN_ZOOM) {
+      resetZoom();
+    } else {
+      setZoom(2.5);
+    }
+  }
+
+  function handlePointerDown(e: React.PointerEvent) {
+    if (zoom <= LIGHTBOX_MIN_ZOOM) return;
+    (e.target as HTMLElement).setPointerCapture(e.pointerId);
+    dragStateRef.current = { startX: e.clientX, startY: e.clientY, panX: pan.x, panY: pan.y };
+    setIsDragging(true);
+  }
+
+  function handlePointerMove(e: React.PointerEvent) {
+    if (!isDragging || !dragStateRef.current) return;
+    const { startX, startY, panX, panY } = dragStateRef.current;
+    setPan({ x: panX + (e.clientX - startX), y: panY + (e.clientY - startY) });
+  }
+
+  function handlePointerUp() {
+    setIsDragging(false);
+    dragStateRef.current = null;
+  }
 
   const loadImage = useCallback(async () => {
     if (!url) return;
@@ -129,16 +191,65 @@ function MediaImage({ url, alt }: { url: string; alt: string }) {
       {/* Full-size lightbox — thumbnails above are cropped to a small
           box (max-h-64/max-w-60, object-cover) so details like a
           utility bill's fine print are unreadable at a glance. This
-          shows the same already-loaded image (or blob URL) uncropped
-          and as large as the viewport allows. */}
-      <Dialog open={lightboxOpen} onOpenChange={setLightboxOpen}>
+          shows the same already-loaded image (or blob URL) uncropped,
+          as large as the viewport allows, and further zoomable (scroll
+          wheel, +/- buttons, or double-click) with drag-to-pan once
+          zoomed in — some bills are still too small even at "fit to
+          screen" size. */}
+      <Dialog
+        open={lightboxOpen}
+        onOpenChange={(open) => {
+          setLightboxOpen(open);
+          if (!open) resetZoom();
+        }}
+      >
         <DialogContent className="max-w-[95vw] sm:max-w-[90vw] border-none bg-transparent p-0 shadow-none ring-0">
           <DialogTitle className="sr-only">{alt}</DialogTitle>
-          <img
-            src={src ?? ""}
-            alt={alt}
-            className="max-h-[90vh] w-full rounded-lg object-contain"
-          />
+          <div
+            className="relative flex max-h-[90vh] items-center justify-center overflow-hidden rounded-lg"
+            onWheel={handleWheel}
+            onDoubleClick={handleDoubleClick}
+            onPointerDown={handlePointerDown}
+            onPointerMove={handlePointerMove}
+            onPointerUp={handlePointerUp}
+            onPointerLeave={handlePointerUp}
+          >
+            <img
+              src={src ?? ""}
+              alt={alt}
+              draggable={false}
+              className="max-h-[90vh] w-full select-none rounded-lg object-contain"
+              style={{
+                transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
+                cursor: zoom > LIGHTBOX_MIN_ZOOM ? (isDragging ? "grabbing" : "grab") : "zoom-in",
+              }}
+            />
+            {/* Zoom controls — scroll-to-zoom isn't discoverable on its
+                own, so always show +/- buttons too. */}
+            <div className="absolute bottom-3 left-1/2 flex -translate-x-1/2 items-center gap-2 rounded-full bg-black/70 px-2 py-1.5 backdrop-blur-sm">
+              <button
+                type="button"
+                onClick={() => zoomBy(-LIGHTBOX_ZOOM_STEP)}
+                disabled={zoom <= LIGHTBOX_MIN_ZOOM}
+                className="flex h-7 w-7 items-center justify-center rounded-full text-white transition-colors hover:bg-white/20 disabled:opacity-40"
+                aria-label="Diminuir zoom"
+              >
+                <ZoomOut className="h-4 w-4" />
+              </button>
+              <span className="min-w-[3ch] text-center text-xs font-medium text-white">
+                {Math.round(zoom * 100)}%
+              </span>
+              <button
+                type="button"
+                onClick={() => zoomBy(LIGHTBOX_ZOOM_STEP)}
+                disabled={zoom >= LIGHTBOX_MAX_ZOOM}
+                className="flex h-7 w-7 items-center justify-center rounded-full text-white transition-colors hover:bg-white/20 disabled:opacity-40"
+                aria-label="Aumentar zoom"
+              >
+                <ZoomIn className="h-4 w-4" />
+              </button>
+            </div>
+          </div>
         </DialogContent>
       </Dialog>
     </>
