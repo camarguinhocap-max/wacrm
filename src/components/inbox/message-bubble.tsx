@@ -20,6 +20,7 @@ import { ReplyQuote } from "./reply-quote";
 import { MessageReactions } from "./message-reactions";
 import { InteractivePreview } from "@/components/interactive/interactive-preview";
 import { useTranslations } from "next-intl";
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 
 interface MessageBubbleProps {
   message: Message;
@@ -60,6 +61,7 @@ function MediaImage({ url, alt }: { url: string; alt: string }) {
   const [src, setSrc] = useState<string | null>(null);
   const [error, setError] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [lightboxOpen, setLightboxOpen] = useState(false);
 
   const loadImage = useCallback(async () => {
     if (!url) return;
@@ -110,12 +112,36 @@ function MediaImage({ url, alt }: { url: string; alt: string }) {
   }
 
   return (
-    <img
-      src={src ?? ""}
-      alt={alt}
-      className="max-h-64 max-w-60 rounded-lg object-cover"
-      onError={() => setError(true)}
-    />
+    <>
+      <button
+        type="button"
+        onClick={() => setLightboxOpen(true)}
+        className="block cursor-zoom-in transition-opacity hover:opacity-90"
+        aria-label={alt}
+      >
+        <img
+          src={src ?? ""}
+          alt={alt}
+          className="max-h-64 max-w-60 rounded-lg object-cover"
+          onError={() => setError(true)}
+        />
+      </button>
+      {/* Full-size lightbox — thumbnails above are cropped to a small
+          box (max-h-64/max-w-60, object-cover) so details like a
+          utility bill's fine print are unreadable at a glance. This
+          shows the same already-loaded image (or blob URL) uncropped
+          and as large as the viewport allows. */}
+      <Dialog open={lightboxOpen} onOpenChange={setLightboxOpen}>
+        <DialogContent className="max-w-[95vw] sm:max-w-[90vw] border-none bg-transparent p-0 shadow-none ring-0">
+          <DialogTitle className="sr-only">{alt}</DialogTitle>
+          <img
+            src={src ?? ""}
+            alt={alt}
+            className="max-h-[90vh] w-full rounded-lg object-contain"
+          />
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }
 
