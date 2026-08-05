@@ -414,9 +414,14 @@ async function handleStatusUpdate(status: {
   //    sent/delivered/read/failed counts automatically.
   const tsIso = new Date(parseInt(status.timestamp) * 1000).toISOString()
 
+  // Also carries contact_id + the parent broadcast's account_id so the
+  // "undeliverable" tagging below can fire for broadcast sends too —
+  // broadcasts never write a row to `messages`, so the messages-based
+  // tagging path further down (step 4) never sees them. This is the
+  // only place a broadcast-originated failure is observable.
   const { data: recipient, error: recFetchErr } = await supabaseAdmin()
     .from('broadcast_recipients')
-    .select('id, status')
+    .select('id, status, contact_id, broadcasts(account_id)')
     .eq('whatsapp_message_id', status.id)
     .maybeSingle()
 
@@ -440,6 +445,23 @@ async function handleStatusUpdate(status: {
 
     if (recUpdateErr) {
       console.error('Error updating broadcast recipient status:', recUpdateErr)
+    }
+
+    // Tag the contact when Meta reports this broadcast send as
+    // permanently undeliverable (see WHATSAPP_UNDELIVERABLE_ERROR_CODE
+    // above). Mirrors step 4's inbox-path tagging below — this is the
+    // broadcast-path equivalent. Best-effort, never throws.
+    const broadcastAccountId = (
+      recipient.broadcasts as { account_id: string } | null
+    )?.account_id
+    if (
+      status.status === 'failed' &&
+      broadcastAccountId &&
+      status.errors?.some(
+        (e) => e.code === WHATSAPP_UNDELIVERABLE_ERROR_CODE
+      )
+    ) {
+      await tagContactNoWhatsApp(broadcastAccountId, recipient.contact_id)
     }
   }
 
