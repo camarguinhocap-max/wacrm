@@ -41,7 +41,10 @@ export default function NewBroadcastPage() {
     excludeTagIds?: string[];
   }>({ type: 'all' });
   const [variables, setVariables] = useState<
-    Record<string, { type: 'static' | 'field' | 'custom_field'; value: string }>
+    Record<
+      string,
+      { type: 'static' | 'field' | 'custom_field' | 'computed'; value: string }
+    >
   >({});
   const [headerMediaUrl, setHeaderMediaUrl] = useState('');
   const [name, setName] = useState('');

@@ -732,11 +732,14 @@
         "typeStatic": "고정 값",
         "typeContact": "연락처 필드",
         "typeCustom": "커스텀 필드",
+        "typeComputed": "자동 계산",
         "staticValue": "고정 값",
         "contactField": "연락처 필드",
         "selectContactField": "필드 선택...",
         "customField": "커스텀 필드",
         "selectCustomField": "커스텀 필드 선택...",
+        "computedField": "자동 계산 값",
+        "selectComputedField": "자동 계산 값 선택...",
         "preview": "미리보기",
         "previewSample": "샘플 데이터로 미리보기를 표시합니다.",
         "noPreview": "미리보기를 사용할 수 없습니다.",
@@ -744,6 +747,9 @@
           "name": "이름",
           "phone": "전화번호",
           "email": "이메일"
+        },
+        "computedFieldMap": {
+          "greetingName": "인사말 (시간대 + 이름, 일반 이름은 생략)"
         }
       },
       "scheduleSend": {

@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/hooks/use-auth';
 import { Contact, MessageTemplate } from '@/types';
+import { resolveComputedVariable } from '@/lib/broadcasts/computed-variables';
 
 export type CustomFieldOperator = 'is' | 'is_not' | 'contains';
 
@@ -27,12 +28,15 @@ export interface AudienceConfig {
  * "2", …) is resolved at send time. `field` maps to a built-in contact
  * field (name/phone/email/company); `custom_field` maps to a
  * contact_custom_values.value row keyed by the custom_fields.id stored
- * in `value`.
+ * in `value`; `computed` derives the value from send-time context
+ * (current hour, name quality — see `resolveComputedVariable`) rather
+ * than a stored field.
  */
 export type VariableMapping =
   | { type: 'static'; value: string }
   | { type: 'field'; value: string }
-  | { type: 'custom_field'; value: string };
+  | { type: 'custom_field'; value: string }
+  | { type: 'computed'; value: string };
 
 interface BroadcastPayload {
   name: string;
@@ -110,6 +114,14 @@ export function resolveVariables(
         company: contact.company,
       };
       return fieldMap[v.value] ?? '';
+    }
+
+    if (v.type === 'computed') {
+      // Evaluated per-recipient at actual send time (this function
+      // runs once per SEND_BATCH_SIZE batch, not once at broadcast
+      // creation), so a time-of-day greeting reflects the moment each
+      // batch really goes out.
+      return resolveComputedVariable(v.value, contact.name);
     }
 
     // custom_field

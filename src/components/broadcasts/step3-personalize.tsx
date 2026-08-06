@@ -14,8 +14,12 @@ import {
 } from '@/components/ui/select';
 import { ArrowLeft, ArrowRight, Eye, ImageIcon, Loader2 } from 'lucide-react';
 import { useTranslations } from 'next-intl';
+import {
+  COMPUTED_FIELDS,
+  resolveComputedVariable,
+} from '@/lib/broadcasts/computed-variables';
 
-type VariableType = 'static' | 'field' | 'custom_field';
+type VariableType = 'static' | 'field' | 'custom_field' | 'computed';
 
 interface VariableMapping {
   type: VariableType;
@@ -216,6 +220,12 @@ export function Step3Personalize({
           replacement = fieldMap[mapping.value] ?? placeholder;
         } else if (mapping.type === 'custom_field' && mapping.value) {
           replacement = customValues.get(mapping.value) || placeholder;
+        } else if (mapping.type === 'computed' && mapping.value) {
+          // Same resolver the real send uses (see useBroadcastSending's
+          // resolveVariables) — the preview shows exactly what a real
+          // recipient would get, evaluated against the sample/first
+          // contact's current name right now.
+          replacement = resolveComputedVariable(mapping.value, contact.name);
         }
       }
       text = text.replaceAll(placeholder, replacement);
@@ -330,13 +340,22 @@ export function Step3Personalize({
                         <SelectItem value="custom_field">
                           {t('personalize.typeCustom')}
                         </SelectItem>
+                        <SelectItem value="computed">
+                          {t('personalize.typeComputed')}
+                        </SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
 
                   <div>
                     <label className="mb-1.5 block text-xs font-medium text-muted-foreground">
-                      {mapping.type === 'static' ? t('personalize.staticValue') : t('personalize.contactField')}
+                      {mapping.type === 'static'
+                        ? t('personalize.staticValue')
+                        : mapping.type === 'custom_field'
+                          ? t('personalize.customField')
+                          : mapping.type === 'computed'
+                            ? t('personalize.computedField')
+                            : t('personalize.contactField')}
                     </label>
                     {mapping.type === 'static' ? (
                       <Input
@@ -361,6 +380,24 @@ export function Step3Personalize({
                           {contactFields.map((field) => (
                             <SelectItem key={field.value} value={field.value}>
                               {t(`personalize.fieldMap.${field.labelKey}`)}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    ) : mapping.type === 'computed' ? (
+                      <Select
+                        value={mapping.value || undefined}
+                        onValueChange={(val) =>
+                          updateVariable(key, { value: val || '' })
+                        }
+                      >
+                        <SelectTrigger className="w-full border-border bg-muted text-foreground">
+                          <SelectValue placeholder={t('personalize.selectComputedField')} />
+                        </SelectTrigger>
+                        <SelectContent className="border-border bg-popover">
+                          {COMPUTED_FIELDS.map((field) => (
+                            <SelectItem key={field.value} value={field.value}>
+                              {t(`personalize.computedFieldMap.${field.labelKey}`)}
                             </SelectItem>
                           ))}
                         </SelectContent>

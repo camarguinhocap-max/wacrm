@@ -732,11 +732,14 @@
         "typeStatic": "Static Value",
         "typeContact": "Contact Field",
         "typeCustom": "Custom Field",
+        "typeComputed": "Computed",
         "staticValue": "Static Value",
         "contactField": "Contact Field",
         "selectContactField": "Select field...",
         "customField": "Custom Field",
         "selectCustomField": "Select custom field...",
+        "computedField": "Computed Value",
+        "selectComputedField": "Select computed value...",
         "preview": "Preview",
         "previewSample": "Showing preview with sample data.",
         "noPreview": "Preview not available.",
@@ -744,6 +747,9 @@
           "name": "Name",
           "phone": "Phone",
           "email": "Email"
+        },
+        "computedFieldMap": {
+          "greetingName": "Greeting (time of day + name, skips generic names)"
         }
       },
       "scheduleSend": {
