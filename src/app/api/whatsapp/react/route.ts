@@ -4,6 +4,10 @@ import { sendReactionMessage } from '@/lib/whatsapp/meta-api';
 import { decrypt } from '@/lib/whatsapp/encryption';
 import { sanitizePhoneForMeta } from '@/lib/whatsapp/phone-utils';
 import {
+  resolveWhatsAppConfig,
+  WhatsAppConfigNotFoundError,
+} from '@/lib/whatsapp/resolve-config';
+import {
   checkRateLimit,
   rateLimitResponse,
   RATE_LIMITS,
@@ -66,7 +70,7 @@ export async function POST(request: Request) {
 
     const { data: conversation, error: convError } = await supabase
       .from('conversations')
-      .select('id, account_id, contact:contacts(phone)')
+      .select('id, account_id, whatsapp_config_id, contact:contacts(phone)')
       .eq('id', targetMessage.conversation_id)
       .eq('account_id', accountId)
       .maybeSingle();
@@ -88,18 +92,24 @@ export async function POST(request: Request) {
       );
     }
 
-    // WhatsApp config + access token. Account-scoped post-multi-user.
-    const { data: config, error: configError } = await supabase
-      .from('whatsapp_config')
-      .select('phone_number_id, access_token')
-      .eq('account_id', accountId)
-      .single();
-
-    if (configError || !config) {
-      return NextResponse.json(
-        { error: 'WhatsApp not configured.' },
-        { status: 400 },
+    // WhatsApp config + access token — react through whichever number
+    // this conversation is currently on, so the reaction comes from the
+    // same number the customer is actually talking to.
+    let config;
+    try {
+      config = await resolveWhatsAppConfig(
+        supabase,
+        accountId,
+        conversation.whatsapp_config_id,
       );
+    } catch (err) {
+      if (err instanceof WhatsAppConfigNotFoundError) {
+        return NextResponse.json(
+          { error: 'WhatsApp not configured.' },
+          { status: 400 },
+        );
+      }
+      throw err;
     }
 
     const accessToken = decrypt(config.access_token);

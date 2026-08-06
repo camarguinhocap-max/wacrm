@@ -3,8 +3,9 @@
 import { useEffect, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { MessageTemplate } from '@/types';
+import type { WhatsAppConfig } from '@/types';
 import { Button } from '@/components/ui/button';
-import { Loader2, FileText, ArrowRight } from 'lucide-react';
+import { Loader2, FileText, ArrowRight, Smartphone, Star } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 
 const categoryColors: Record<string, string> = {
@@ -16,28 +17,79 @@ const categoryColors: Record<string, string> = {
 interface Step1Props {
   selectedTemplate: MessageTemplate | null;
   onSelect: (template: MessageTemplate) => void;
+  /** Which of the account's numbers (migration 039) to send from.
+   *  Undefined until the user picks one (or the account only has one). */
+  whatsappConfigId: string | null;
+  onSelectNumber: (configId: string) => void;
   onNext: () => void;
   onBack: () => void;
 }
 
-export function Step1ChooseTemplate({ selectedTemplate, onSelect, onNext, onBack }: Step1Props) {
+export function Step1ChooseTemplate({
+  selectedTemplate,
+  onSelect,
+  whatsappConfigId,
+  onSelectNumber,
+  onNext,
+  onBack,
+}: Step1Props) {
   const t = useTranslations('Broadcasts.wizard');
   const [templates, setTemplates] = useState<MessageTemplate[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [configs, setConfigs] = useState<WhatsAppConfig[]>([]);
+  const [configsLoading, setConfigsLoading] = useState(true);
+
+  // Load the account's numbers first — an account with more than one
+  // (migration 039) picks which one to send this broadcast from
+  // before templates are even fetched, since templates are scoped to
+  // a WABA and the picker filters the list below.
+  useEffect(() => {
+    async function fetchConfigs() {
+      try {
+        const res = await fetch('/api/whatsapp/config', { method: 'GET' });
+        const data = await res.json();
+        const list: WhatsAppConfig[] = Array.isArray(data.configs) ? data.configs : [];
+        setConfigs(list);
+        if (!whatsappConfigId && list.length > 0) {
+          const def = list.find((c) => c.is_default) ?? list[0];
+          onSelectNumber(def.id);
+        }
+      } catch (err) {
+        console.error('Failed to load WhatsApp numbers:', err);
+      } finally {
+        setConfigsLoading(false);
+      }
+    }
+    fetchConfigs();
+    // Only on mount — `onSelectNumber`/`whatsappConfigId` intentionally
+    // excluded so re-selecting doesn't re-trigger this fetch.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const selectedConfig = configs.find((c) => c.id === whatsappConfigId) ?? null;
 
   useEffect(() => {
+    if (configsLoading) return;
     async function fetchTemplates() {
       try {
+        setLoading(true);
         const supabase = createClient();
         // Only APPROVED templates can be sent via Meta — anything else
         // would 400 at broadcast time. Hide them rather than letting
-        // the user pick a template that will fail.
-        const { data, error: fetchError } = await supabase
+        // the user pick a template that will fail. Scoped to the
+        // selected number's WABA (migration 039) — a template
+        // approved on one WABA isn't sendable from a number on
+        // another.
+        let query = supabase
           .from('message_templates')
           .select('*')
           .eq('status', 'APPROVED')
           .order('created_at', { ascending: false });
+        if (selectedConfig?.waba_id) {
+          query = query.eq('waba_id', selectedConfig.waba_id);
+        }
+        const { data, error: fetchError } = await query;
 
         if (fetchError) throw fetchError;
         setTemplates(data ?? []);
@@ -49,9 +101,9 @@ export function Step1ChooseTemplate({ selectedTemplate, onSelect, onNext, onBack
     }
 
     fetchTemplates();
-  }, []);
+  }, [configsLoading, selectedConfig?.waba_id, t]);
 
-  if (loading) {
+  if (configsLoading || loading) {
     return (
       <div className="flex h-64 items-center justify-center">
         <Loader2 className="h-6 w-6 animate-spin text-primary" />
@@ -75,6 +127,43 @@ export function Step1ChooseTemplate({ selectedTemplate, onSelect, onNext, onBack
           {t('chooseTemplate.subtitle')}
         </p>
       </div>
+
+      {/* Sending number — only shown once the account has more than
+          one (migration 039). With exactly one, it's auto-selected
+          above and this section stays out of the way. */}
+      {configs.length > 1 && (
+        <div className="space-y-2">
+          <h3 className="text-sm font-medium text-foreground">
+            {t('chooseTemplate.chooseNumber')}
+          </h3>
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+            {configs.map((config) => {
+              const isSelected = config.id === whatsappConfigId;
+              return (
+                <button
+                  key={config.id}
+                  onClick={() => onSelectNumber(config.id)}
+                  className={`flex items-center gap-2.5 rounded-lg border p-3 text-left transition-all ${
+                    isSelected
+                      ? 'border-primary bg-primary/5 ring-1 ring-primary/30'
+                      : 'border-border bg-card/50 hover:bg-card'
+                  }`}
+                >
+                  <Smartphone className="h-4 w-4 shrink-0 text-muted-foreground" />
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-sm font-medium text-foreground">
+                      {config.label || config.phone_number_id}
+                    </span>
+                  </span>
+                  {config.is_default && (
+                    <Star className="h-3.5 w-3.5 shrink-0 text-amber-400" />
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {templates.length === 0 ? (
         <div className="flex h-48 flex-col items-center justify-center rounded-xl border border-border bg-card/50">
@@ -125,7 +214,7 @@ export function Step1ChooseTemplate({ selectedTemplate, onSelect, onNext, onBack
         </Button>
         <Button
           onClick={onNext}
-          disabled={!selectedTemplate}
+          disabled={!selectedTemplate || !whatsappConfigId}
           className="bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
         >
           {t('next')}

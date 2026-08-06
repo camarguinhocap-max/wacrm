@@ -74,12 +74,16 @@ export async function resolveAuditUserId(
   db: SupabaseClient,
   accountId: string
 ): Promise<string> {
-  const { data: config } = await db
+  // Any config row's owner works here (this is audit attribution, not
+  // a send), so we don't need a specific number — `.limit(1)` instead
+  // of `.maybeSingle()` because an account can have more than one
+  // config row (migration 039) and `.maybeSingle()` errors on ≥2.
+  const { data: configRows } = await db
     .from('whatsapp_config')
     .select('user_id')
     .eq('account_id', accountId)
-    .maybeSingle();
-  const configOwner = config?.user_id as string | undefined;
+    .limit(1);
+  const configOwner = configRows?.[0]?.user_id as string | undefined;
   if (configOwner) return configOwner;
 
   const { data: account } = await db

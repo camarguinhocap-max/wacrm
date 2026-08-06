@@ -682,7 +682,8 @@
         "subtitle": "Selecione um template de mensagem aprovado para sua transmissão.",
         "noTemplates": "Nenhum template disponível.",
         "createFirst": "Crie um template em Configurações primeiro.",
-        "errorLoad": "Falha ao carregar templates"
+        "errorLoad": "Falha ao carregar templates",
+        "chooseNumber": "Enviar a partir de"
       },
       "selectAudience": {
         "title": "Selecione o Público",
@@ -1212,6 +1213,7 @@
       "notSetup": "Ainda não configurado",
       "connected": "Conectado",
       "needsReconnecting": "Precisa reconectar",
+      "numbersConnected": "{connected} de {total} conectado(s)",
       "viewTeamMembers": "Ver membros da equipe",
       "membersCount": "{count} {count, plural, =1 {membro} other {membros}}",
       "pendingInvites": "{count} {count, plural, =1 {convite pendente} other {convites pendentes}}",
@@ -1499,7 +1501,21 @@
       "step4_3": "Cole a <strong class=\"text-foreground\">URL de Callback do Webhook</strong> acima",
       "step4_4": "Digite o mesmo <strong class=\"text-foreground\">Token de Verificação</strong> definido aqui",
       "step4_5": "Inscreva-se no campo de webhook \"messages\"",
-      "metaDocs": "Documentação da API do Meta WhatsApp"
+      "metaDocs": "Documentação da API do Meta WhatsApp",
+      "connectedNumbers": "Números Conectados",
+      "connectedNumbersDesc": "Contas do WhatsApp Business ligadas a esta conta. Cada contato usa uma única conversa, que segue o número por onde ele falou por último.",
+      "noNumbersYet": "Nenhum número conectado ainda. Adicione um abaixo.",
+      "defaultBadge": "Padrão",
+      "setDefault": "Tornar padrão",
+      "removeNumber": "Remover",
+      "removing": "Removendo...",
+      "removeConfirm": "Isso vai remover este número. Conversas e mensagens antigas continuam salvas, mas deixam de estar ligadas a ele. Continuar?",
+      "addNumberTitle": "Adicionar Número",
+      "addNumberDesc": "Conecte outro número do WhatsApp Business a esta conta.",
+      "labelField": "Rótulo",
+      "labelOptional": "(opcional)",
+      "labelPlaceholder": "ex.: Principal, Backup",
+      "addNumberButton": "Adicionar Número"
     },
     "sections": {
       "overview": "Visão geral",

@@ -154,7 +154,7 @@ Para testar como se fosse a "primeira mensagem" de novo com um número que já c
 Fora do wacrm, direto no **Gerenciador do WhatsApp** da Meta (business.facebook.com), existe o equivalente às configurações do app WhatsApp Business do celular:
 
 ### Site da empresa
-`Números de telefone → clique no número → aba "Perfil"`. Lá tem: Categoria, Descrição, Endereço, Email e até **2 campos de Site**. Hoje estão vazios — pode preencher direto ali, não precisa mexer no wacrm.
+`Números de telefone → clique no número → aba "Perfil"`. Lá tem: Categoria, Descrição, Endereço, Email e até **2 campos de Site**. **Atualização 04/08/2026:** Email (`contato@sunnesul.com.br`) e os 2 campos de Site (`https://sunnesul.com.br/`, `https://sunnesul.com.br/cartao`) já estão preenchidos — a nota antiga dizendo que estavam vazios estava desatualizada. Só **Descrição** e **Endereço** continuam vazios (opcional, ver seção 8.3).
 
 ### Catálogo de produtos
 Menu lateral → **"Catálogo"**. Ainda não está conectado nenhum catálogo a essa conta.
@@ -208,7 +208,63 @@ Como funciona (arquivo `src/app/api/whatsapp/webhook/route.ts`):
 - **A tag é removida automaticamente** assim que o contato manda qualquer mensagem pra Sunne Sul — a mensagem já prova que ele tem WhatsApp de novo.
 - **Não existe reenvio automático** pra quem está com essa tag — decisão deliberada, pra não repetir o mesmo padrão de risco de bloqueio (mandar pra quem já falhou antes, sem confirmação de que a situação mudou). Se um dia quiserem tentar de novo com esses contatos, é uma decisão manual (tirar a tag ou não usá-la como filtro de exclusão numa campanha).
 
-**Pendente:** essa mudança está só no código local — falta commit + push + deploy (ver pendências, seção 12).
+**Correção (04/08/2026):** ao contrário do que estava anotado aqui, o código já estava commitado e sincronizado com `origin/main` — confirmado via `git commit`/`git push` (nada a enviar). A anotação de "pendente" estava desatualizada. A funcionalidade já está no repositório; falta só confirmar se o deploy em produção reflete essa versão (checar EasyPanel).
+
+### Bug de conteúdo corrigido: automação "Marketing - Triagem baixa tensão" não pedia email (04/08/2026)
+Um cliente do teste de 22 contatos clicou "Baixa Tensão (casa)" e recebeu a mensagem automática sem pedido de email (só pedia a foto da conta de luz) — diferente do Flow de triagem normal, que já tinha sido corrigido antes pra pedir os dois. Causa: a automação de botão (`automation_steps.id = 131c4905-4d64-4d69-950d-b45eaf67b216`, automação "Marketing - Triagem baixa tensão") ficou com uma cópia de texto mais antiga, nunca sincronizada com a correção do Flow. **Corrigido direto no banco em 04/08/2026** — texto agora pede foto/PDF da conta **e** o email, igual ao Flow. Não precisa de deploy (é conteúdo, não código).
+
+## 8.3 Auditoria do WhatsApp Manager e Business Manager (04/08/2026)
+
+Auditoria feita a pedido do usuário, navegando direto em business.facebook.com (WhatsApp Manager + Central de Segurança do Business Manager). **Nenhuma ação foi tomada** — tudo abaixo é só levantamento, pendente de decisão do usuário sobre o que fazer.
+
+### Qualidade e limites — está tudo bem, sem ação necessária
+- Qualidade do número `+55 41 8775-7984`: **Alta** (verde). O teste de broadcast de 20 contatos (seção 8.2) não prejudicou a qualidade.
+- Limite atual: 19 de 250 conversas iniciadas pela empresa este mês; 1 de 2 números de telefone cadastrados.
+- Dois caminhos pra aumentar o limite (250 → 2.000+): (1) **Verificação da empresa** — já em andamento no lado da Meta, só aguardar notificação, nada a fazer aqui; (2) **Melhorar qualidade das mensagens** — métrica exibida "22 conversas iniciadas / 30 dias" (isso é só o progresso atual desse critério alternativo, não é um alerta de problema).
+- "Conta comercial oficial" (selo azul): botão de solicitação aparece desabilitado — provavelmente porque depende da verificação da empresa terminar primeiro.
+
+### Perfil do número (aba Perfil) — pendências opcionais, precisam de aprovação pra eu submeter
+- Email e Site (2 campos) já preenchidos — ver correção na seção 8 acima.
+- **Descrição** e **Endereço** continuam vazios. Baixo risco, mas é uma mudança de conta — preciso do texto que o usuário quer usar antes de preencher.
+- Facebook/Instagram não conectados ao perfil (opcional).
+
+### WABAs órfãs no Business Manager (portfólio "Rendaextraskill")
+Existem 3 WABAs no total:
+1. **Assessor de Energia|Sunne Sul** (ID `2504146196723505`) — a em uso, com o número real.
+2. **Sunne Sul Assessor de Energia** (ID `1748496489727941`) — sem nenhum telefone vinculado. Confirma a pendência já registrada na seção 12 (um dos dois IDs órfãos citados ali).
+3. **Test WhatsApp Business Account** (ID `2031215254158524`) — parece ser uma conta de testes intencional, não necessariamente "órfã"; não mexer sem confirmação.
+
+O outro ID órfão que já estava anotado na seção 12 (`1688746219127408`) **não apareceu** na lista atual de WABAs do portfólio — pode já ter sido removido antes, ou pertencer a outro portfólio. Não confirmado.
+
+### Central de Segurança do Business Manager (fora do WhatsApp Manager, mas mesmo portfólio) — "Action needed"
+1. **1 conta de anúncios sem segurança por aprovação de semelhantes** — risco: anúncios não autorizados podem ser publicados sem revisão. Recomendação da Meta: verificar níveis de proteção e adicionar usuários confiáveis às contas de anúncios.
+2. **1 usuário com domínio de email público** (ex: gmail/hotmail) cadastrado no portfólio — risco: domínios públicos são mais visados por sequestro de conta. Recomendação da Meta: remover esse usuário do portfólio.
+   - Também mostrado como já resolvido/ok: pelo menos 1 domínio confiável na aprovação de semelhantes, e acesso "controle total" limitado a 10 usuários ou menos.
+3. Autenticação de dois fatores: painel mostra "Quem precisa ativar" = "Ninguém" (configuração atual, não exigindo 2FA de ninguém no portfólio).
+4. Administrador secundário: já há pelo menos um outro admin no portfólio (ok, já resolvido).
+
+### Painel de Alertas (dentro do WhatsApp Manager, tela Visão geral)
+1. **"Agenda de contatos ativada"** — informativo, ativado automaticamente pela Meta como parte da transição pra nomes de usuário. Sem ação necessária.
+2. **"Comece a receber insights sobre o modelo de mensagem"** — opt-in gratuito pra métricas por template (entrega, engajamento). Baixo risco, útil pra avaliar performance de templates de campanha. Sugestão: ativar.
+3. **"Deseja instruir a Meta a ativar eventos automáticos..."** — permite que a Meta monitore marcos das conversas e mande atualizações automáticas; aplica a todas as contas WhatsApp do negócio; reversível a qualquer momento nas configurações. É mudança de configuração de conta, precisa de aprovação explícita antes de eu clicar em "Ativar".
+4. **"Até 9% de mensagens de marketing a mais via API de Mensagens de Marketing"** — promove migrar da Cloud API (que usamos hoje) pra uma API separada, otimizada pra picos de entrega de mensagens de marketing. Não é um clique simples — exigiria mudança de integração no código do wacrm (endpoint/fluxo diferentes). Fica como item de pesquisa separado, não uma ação imediata.
+
+### Resolução dos dois riscos da Central de Segurança (04/08/2026)
+- **Risco "conta de anúncios sem aprovação de semelhantes" (DragaoSupp):** investigado e **confirmado 100% resolvido de fato**. ID exato encontrado via inspeção do código da página: `793173567874318` (nome "DragaoSupp", dono "Rendaextraskill" na visão da Central de Segurança, mas conta pessoal do usuário). Status real na Meta: **"Conta de anúncios encerrada" — não pode ser usada pra veicular anúncios**, saldo $0,00, nenhuma forma de pagamento cadastrada, nenhum anúncio jamais criado nela. Não tinha nenhum aprovador elegível pra selecionar no fluxo da Central de Segurança (Meta não permite escolher usuários inativos há 90+ dias como aprovadores), mas isso é irrelevante — uma conta encerrada não pode veicular anúncio nenhum, autorizado ou não. **Nenhuma ação adicional necessária**; o alerta pode continuar aparecendo na tela por ser cosmético (a Meta não reconhece "encerrada" como mitigação válida pra esse alerta específico).
+  - Nota: as outras 2 contas de anúncios pessoais do usuário (`649637912125330` — ativa mas com as 2 únicas campanhas já "Desativado" e R$0,00 gastos; `158700034203711` — também encerrada desde 2019) foram checadas por engano antes de achar o ID certo da DragaoSupp; ambas confirmadas sem problema/sem gasto ativo.
+- **Risco "usuário com domínio de email público":** identificado como `camarguinhocap2@gmail.com` (Josmair Franco De Camargo Filho) — conta pessoal antiga do próprio usuário, confirmada por ele como sem uso no Business Manager. **Removida do portfólio Rendaextraskill em 04/08/2026** (autorizado explicitamente pelo usuário). A remoção foi processada em segundo plano pela Meta ("Tarefa em andamento") — confirmar na próxima visita à Central de Segurança que o alerta sumiu.
+
+### Resumo — o que ainda precisa de decisão do usuário
+- [ ] Preencher Descrição/Endereço do perfil do número (dar o texto desejado)
+- [ ] Conectar Facebook/Instagram ao perfil do número (sim/não)
+- [ ] Apagar a WABA órfã `1748496489727941` ou deixar como está (sim/não)
+- [ ] Ativar "insights de template" (recomendado)
+- [ ] Ativar "eventos automáticos" da Meta (opcional)
+- [ ] Investigar/decidir sobre a migração pra API de Mensagens de Marketing (pesquisa futura)
+- [x] ~~Desativar/resolver risco da conta de anúncios DragaoSupp~~ — confirmado que já está encerrada pela Meta, nenhuma ação necessária (04/08/2026)
+- [x] ~~Central de Segurança: remover usuário com domínio de email público~~ — feito 04/08/2026
+
+---
 
 ## 9. Notificações via Telegram
 
@@ -296,7 +352,7 @@ para ver se o texto `telegram_chat_id` está mesmo presente no JS publicado.
 - [ ] Descobrir por que o campo "Telegram Chat ID" aparece vazio em Configurações → Seu perfil, mesmo salvo no banco — ver diagnóstico completo e próximos passos na seção 11. Outras tarefas abaixo ficam pausadas até isso ser resolvido.
 
 **Broadcast:**
-- [ ] Commit + push + deploy da tag automática "Sem WhatsApp" (código pronto em 04/08/2026, sem migration necessária — só usa as tabelas `tags`/`contact_tags` que já existiam). Arquivo alterado: `src/app/api/whatsapp/webhook/route.ts`. Ver seção 8.2 para detalhes.
+- [x] ~~Commit + push + deploy da tag automática "Sem WhatsApp"~~ — já estava sincronizado com `origin/main` (confirmado 04/08/2026 via `git commit`/`git push`, "nothing to commit"). Falta só confirmar que o deploy em produção está na versão certa. Ver seção 8.2.
 
 **AI Agents:**
 - [ ] Commit + push + deploy do suporte a Groq como provedor de IA (código pronto localmente em 03/08/2026: migration `038_ai_groq_provider.sql` já aplicada no Supabase; arquivos alterados: `src/lib/ai/types.ts`, `src/lib/ai/providers/shared.ts`, `src/lib/ai/providers/openai.ts`, `src/lib/ai/providers/groq.ts` (novo), `src/lib/ai/generate.ts`, `src/lib/ai/defaults.ts`, `src/lib/ai/config.ts`, `src/app/api/ai/config/route.ts`, `src/app/api/ai/test/route.ts`, `src/components/settings/ai-config.tsx`, `messages/en.json`). Não foi possível rodar a suíte de testes localmente (ambiente Linux do sandbox não roda o `node_modules` instalado pra Windows — erro de binding nativo do rolldown/vitest); revisão foi manual, sem testes automatizados confirmando.

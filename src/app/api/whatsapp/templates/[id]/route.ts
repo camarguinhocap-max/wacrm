@@ -11,6 +11,10 @@ import {
 } from '@/lib/whatsapp/template-validators'
 import { buildMetaTemplatePayload } from '@/lib/whatsapp/template-components'
 import { ensureImageHeaderHandle } from '@/lib/whatsapp/template-header-handle'
+import {
+  resolveWhatsAppConfig,
+  WhatsAppConfigNotFoundError,
+} from '@/lib/whatsapp/resolve-config'
 
 /**
  * Per-template lifecycle endpoint.
@@ -91,7 +95,7 @@ export async function PATCH(
     // meta_template_id and status — fetch explicitly.
     const { data: existing, error: lookupErr } = await supabase
       .from('message_templates')
-      .select('id, name, status, meta_template_id, language')
+      .select('id, name, status, meta_template_id, language, waba_id, whatsapp_config_id')
       .eq('id', id)
       .eq('account_id', accountId)
       .maybeSingle()
@@ -138,16 +142,25 @@ export async function PATCH(
     }
 
     if (!isDryRun()) {
-      const { data: config, error: configError } = await supabase
-        .from('whatsapp_config')
-        .select('*')
-        .eq('account_id', accountId)
-        .single()
-      if (configError || !config) {
-        return NextResponse.json(
-          { error: 'WhatsApp not configured.' },
-          { status: 400 },
+      // Edit through the same number/WABA the template was originally
+      // submitted on — Meta scopes hsm_id edits to the WABA that owns
+      // the template, so falling back to "whichever number is default"
+      // would silently target the wrong WABA on multi-number accounts.
+      let config
+      try {
+        config = await resolveWhatsAppConfig(
+          supabase,
+          accountId,
+          existing.whatsapp_config_id,
         )
+      } catch (err) {
+        if (err instanceof WhatsAppConfigNotFoundError) {
+          return NextResponse.json(
+            { error: 'WhatsApp not configured.' },
+            { status: 400 },
+          )
+        }
+        throw err
       }
       const accessToken = decrypt(config.access_token)
 
@@ -269,7 +282,7 @@ export async function DELETE(
 
     const { data: existing, error: lookupErr } = await supabase
       .from('message_templates')
-      .select('id, name, meta_template_id')
+      .select('id, name, meta_template_id, waba_id, whatsapp_config_id')
       .eq('id', id)
       .eq('account_id', accountId)
       .maybeSingle()
@@ -278,12 +291,25 @@ export async function DELETE(
     }
 
     if (existing.meta_template_id && !isDryRun()) {
-      const { data: config, error: configError } = await supabase
-        .from('whatsapp_config')
-        .select('*')
-        .eq('account_id', accountId)
-        .single()
-      if (configError || !config || !config.waba_id) {
+      // Same rationale as PATCH — delete through the WABA that owns
+      // the template, not just "the account's default number".
+      let config
+      try {
+        config = await resolveWhatsAppConfig(
+          supabase,
+          accountId,
+          existing.whatsapp_config_id,
+        )
+      } catch (err) {
+        if (err instanceof WhatsAppConfigNotFoundError) {
+          return NextResponse.json(
+            { error: 'WhatsApp not configured — cannot delete on Meta.' },
+            { status: 400 },
+          )
+        }
+        throw err
+      }
+      if (!config.waba_id) {
         return NextResponse.json(
           { error: 'WhatsApp not configured — cannot delete on Meta.' },
           { status: 400 },

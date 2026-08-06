@@ -12,6 +12,7 @@ import {
   isRecipientNotAllowedError,
 } from '@/lib/whatsapp/phone-utils'
 import { supabaseAdmin } from './admin-client'
+import { resolveWhatsAppConfig } from '@/lib/whatsapp/resolve-config'
 
 // ------------------------------------------------------------
 // Automation-side Meta sender.
@@ -131,12 +132,21 @@ async function sendViaMeta(input: SendInput): Promise<{ whatsapp_message_id: str
     throw new Error(`contact phone invalid: ${contact.phone}`)
   }
 
-  const { data: config, error: configErr } = await db
-    .from('whatsapp_config')
-    .select('*')
+  // Resolve via the conversation's current number (the one the contact
+  // most recently messaged — migration 039), falling back to the
+  // account's default. `.maybeSingle()` here is fine even pre-039: a
+  // conversation row always exists by the time an automation fires.
+  const { data: conversation } = await db
+    .from('conversations')
+    .select('whatsapp_config_id')
+    .eq('id', input.conversationId)
     .eq('account_id', input.accountId)
-    .single()
-  if (configErr || !config) {
+    .maybeSingle()
+
+  let config
+  try {
+    config = await resolveWhatsAppConfig(db, input.accountId, conversation?.whatsapp_config_id)
+  } catch {
     throw new Error('WhatsApp not configured for this account')
   }
 
@@ -203,6 +213,7 @@ async function sendViaMeta(input: SendInput): Promise<{ whatsapp_message_id: str
     template_name,
     message_id: waMessageId,
     status: 'sent',
+    whatsapp_config_id: config.id,
   })
   if (msgErr) {
     // Meta already has the message; record the DB error but don't pretend

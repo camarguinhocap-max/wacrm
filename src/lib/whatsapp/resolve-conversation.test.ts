@@ -56,6 +56,15 @@ function makeDb(script: Script): SupabaseClient {
         convLookupCalls++;
         return Promise.resolve({ data: row ? [row] : [], error: null });
       }
+      // resolveAuditUserId's config-owner lookup (any config's owner
+      // suffices post-migration-039, so it's `.limit(1)` rather than
+      // `.maybeSingle()` — see contacts.ts).
+      if (table === 'whatsapp_config' && mode === 'select') {
+        return Promise.resolve({
+          data: script.config ? [script.config] : [],
+          error: null,
+        });
+      }
       return Promise.resolve({ data: [], error: null });
     },
     like: () => {

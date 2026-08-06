@@ -682,7 +682,8 @@
         "subtitle": "Select an approved message template for your broadcast.",
         "noTemplates": "No templates available.",
         "createFirst": "Create a template in Settings first.",
-        "errorLoad": "Failed to load templates"
+        "errorLoad": "Failed to load templates",
+        "chooseNumber": "Send from"
       },
       "selectAudience": {
         "title": "Select Audience",
@@ -1210,6 +1211,7 @@
     "pageDesc": "Everything in one place — your account and your workspace. Pick a section to manage it.",
     "overview": {
       "notSetup": "Not set up yet",
+      "numbersConnected": "{connected} of {total} connected",
       "connected": "Connected",
       "needsReconnecting": "Needs reconnecting",
       "viewTeamMembers": "View team members",
@@ -1499,7 +1501,21 @@
       "step4_3": "Paste the <strong class=\"text-foreground\">Webhook Callback URL</strong> from above",
       "step4_4": "Enter the same <strong class=\"text-foreground\">Verify Token</strong> you set here",
       "step4_5": "Subscribe to \"messages\" webhook field",
-      "metaDocs": "Meta WhatsApp API Documentation"
+      "metaDocs": "Meta WhatsApp API Documentation",
+      "connectedNumbers": "Connected Numbers",
+      "connectedNumbersDesc": "WhatsApp Business accounts linked to this account. Each contact stays in a single conversation, which follows whichever number they messaged last.",
+      "noNumbersYet": "No numbers connected yet. Add one below.",
+      "defaultBadge": "Default",
+      "setDefault": "Make default",
+      "removeNumber": "Remove",
+      "removing": "Removing...",
+      "removeConfirm": "This will remove this number. Past conversations and messages stay saved, but are no longer linked to it. Continue?",
+      "addNumberTitle": "Add Number",
+      "addNumberDesc": "Connect another WhatsApp Business number to this account.",
+      "labelField": "Label",
+      "labelOptional": "(optional)",
+      "labelPlaceholder": "e.g. Main, Backup",
+      "addNumberButton": "Add Number"
     },
     "sections": {
       "overview": "Overview",

@@ -15,6 +15,7 @@ import {
 import { buildMetaTemplatePayload } from '@/lib/whatsapp/template-components'
 import { ensureImageHeaderHandle } from '@/lib/whatsapp/template-header-handle'
 import { normalizeStatus } from '@/lib/whatsapp/template-status-normalize'
+import { resolveWhatsAppConfig, WhatsAppConfigNotFoundError } from '@/lib/whatsapp/resolve-config'
 
 /**
  * Shared upsert payload builder — both the Meta-failure path and the
@@ -29,6 +30,10 @@ function buildUpsertRow(
     status: 'DRAFT' | string
     metaTemplateId: string | null
     submissionError: string | null
+    /** Which number/WABA this was submitted through — null only in
+     *  dry-run mode with no WhatsApp connected yet. */
+    wabaId: string | null
+    whatsappConfigId: string | null
   },
 ) {
   return {
@@ -36,10 +41,11 @@ function buildUpsertRow(
     // of migration 017. Without this an INSERT throws on the
     // not-null constraint.
     account_id: accountId,
-    // Original author — kept as audit only. The unique index is
-    // still on (user_id, name, language) — see the upsert helper
-    // for the cross-teammate dedup follow-up.
+    // Original author — kept as audit only. The unique index is on
+    // (account_id, waba_id, name, language) as of migration 039.
     user_id: userId,
+    waba_id: extras.wabaId,
+    whatsapp_config_id: extras.whatsappConfigId,
     name: payload.name,
     category: payload.category,
     language: payload.language,
@@ -65,14 +71,14 @@ async function upsertTemplateRow(
   supabase: SupabaseClient,
   row: ReturnType<typeof buildUpsertRow>,
 ) {
-  // TODO(account-sharing): conflict target is still scoped to
-  // user_id. Once a follow-up migration drops the legacy unique
-  // index on (user_id, name, language) and adds (account_id,
-  // name, language), switch `onConflict` here so two teammates
-  // can't shadow each other's same-named template.
+  // Conflict target is (account_id, waba_id, name, language) as of
+  // migration 039 — scoped to the WABA a template actually belongs to
+  // (Meta's real ownership boundary) instead of the legacy per-user
+  // index, which let two teammates on the same account silently
+  // shadow each other's same-named template.
   return supabase
     .from('message_templates')
-    .upsert(row, { onConflict: 'user_id,name,language' })
+    .upsert(row, { onConflict: 'account_id,waba_id,name,language' })
     .select()
     .single()
 }
@@ -131,26 +137,44 @@ export async function POST(request: Request) {
       process.env.WHATSAPP_TEMPLATES_DRY_RUN === 'true' ||
       process.env.WHATSAPP_TEMPLATES_DRY_RUN === '1'
 
+    // Which number/WABA to submit this template to — an explicit
+    // choice (broadcast/settings UI on an account with >1 number) or
+    // the account's default.
+    const whatsappConfigId =
+      typeof (payload as { whatsapp_config_id?: unknown }).whatsapp_config_id === 'string'
+        ? (payload as { whatsapp_config_id?: string }).whatsapp_config_id!
+        : null
+
     let metaTemplateId: string
     let metaStatus: string
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let config: any = null
 
     if (dryRun) {
       metaTemplateId = `dry-run-${crypto.randomUUID()}`
       metaStatus = 'PENDING'
+      // Best-effort: dry-run is used in CI/local dev that may have no
+      // WhatsApp connected at all, so a missing config isn't fatal
+      // here — the row just persists with waba_id = null.
+      try {
+        config = await resolveWhatsAppConfig(supabase, accountId, whatsappConfigId)
+      } catch {
+        config = null
+      }
     } else {
-      const { data: config, error: configError } = await supabase
-        .from('whatsapp_config')
-        .select('*')
-        .eq('account_id', accountId)
-        .single()
-      if (configError || !config) {
-        return NextResponse.json(
-          {
-            error:
-              'WhatsApp not configured. Connect your WhatsApp Business account in Settings first.',
-          },
-          { status: 400 },
-        )
+      try {
+        config = await resolveWhatsAppConfig(supabase, accountId, whatsappConfigId)
+      } catch (err) {
+        if (err instanceof WhatsAppConfigNotFoundError) {
+          return NextResponse.json(
+            {
+              error:
+                'WhatsApp not configured. Connect your WhatsApp Business account in Settings first.',
+            },
+            { status: 400 },
+          )
+        }
+        throw err
       }
       if (!config.waba_id) {
         return NextResponse.json(
@@ -196,6 +220,8 @@ export async function POST(request: Request) {
             status: 'DRAFT',
             metaTemplateId: null,
             submissionError: message,
+            wabaId: config?.waba_id ?? null,
+            whatsappConfigId: config?.id ?? null,
           }),
         )
         const isRateLimit = /\b429\b/.test(message)
@@ -216,6 +242,8 @@ export async function POST(request: Request) {
         status: normalizeStatus(metaStatus),
         metaTemplateId,
         submissionError: null,
+        wabaId: config?.waba_id ?? null,
+        whatsappConfigId: config?.id ?? null,
       }),
     )
 

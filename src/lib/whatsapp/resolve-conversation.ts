@@ -24,6 +24,7 @@ import { findExistingContact, isUniqueViolation } from '@/lib/contacts/dedupe';
 import { sanitizePhoneForMeta, isValidE164 } from '@/lib/whatsapp/phone-utils';
 import { SendMessageError } from '@/lib/whatsapp/send-message';
 import { resolveAuditUserId, ContactError } from '@/lib/api/v1/contacts';
+import { resolveWhatsAppConfig, WhatsAppConfigNotFoundError } from '@/lib/whatsapp/resolve-config';
 
 export interface ResolvedConversation {
   conversationId: string;
@@ -42,7 +43,8 @@ export async function resolveConversationByPhone(
   db: SupabaseClient,
   accountId: string,
   phone: string,
-  name?: string | null
+  name?: string | null,
+  whatsappConfigId?: string | null
 ): Promise<ResolvedConversation> {
   const sanitized = sanitizePhoneForMeta(phone);
   if (!isValidE164(sanitized)) {
@@ -54,18 +56,19 @@ export async function resolveConversationByPhone(
   }
 
   // Fail fast (and create nothing) when the account has no WhatsApp
-  // connected — the same error the send would raise anyway.
-  const { data: config } = await db
-    .from('whatsapp_config')
-    .select('id')
-    .eq('account_id', accountId)
-    .maybeSingle();
-  if (!config) {
-    throw new SendMessageError(
-      'whatsapp_not_configured',
-      'WhatsApp not configured. Please set up your WhatsApp integration first.',
-      400
-    );
+  // connected — the same error the send would raise anyway. Resolves a
+  // specific number if the caller named one (e.g. the public API's
+  // `whatsapp_config_id`/`from` field), else the account's default —
+  // needed so a *new* conversation gets pinned to the right number
+  // from the start on an account with more than one.
+  let config;
+  try {
+    config = await resolveWhatsAppConfig(db, accountId, whatsappConfigId);
+  } catch (err) {
+    if (err instanceof WhatsAppConfigNotFoundError) {
+      throw new SendMessageError('whatsapp_not_configured', err.message, 400);
+    }
+    throw err;
   }
 
   // Audit user for created rows = the single account-wide default used
@@ -146,7 +149,8 @@ export async function resolveConversationByPhone(
     db,
     accountId,
     contactId,
-    ownerUserId
+    ownerUserId,
+    config.id
   );
 
   return { conversationId, contactId, contactCreated };
@@ -162,7 +166,8 @@ async function findOrCreateConversationRow(
   db: SupabaseClient,
   accountId: string,
   contactId: string,
-  ownerUserId: string
+  ownerUserId: string,
+  whatsappConfigId: string
 ): Promise<string> {
   const { data: existing, error: findErr } = await db
     .from('conversations')
@@ -187,6 +192,7 @@ async function findOrCreateConversationRow(
       account_id: accountId,
       user_id: ownerUserId,
       contact_id: contactId,
+      whatsapp_config_id: whatsappConfigId,
     })
     .select('id')
     .single();

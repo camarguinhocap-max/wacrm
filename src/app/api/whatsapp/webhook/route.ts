@@ -315,7 +315,8 @@ async function processWebhook(body: { entry?: WhatsAppWebhookEntry[] }) {
           // inserts that need it for NOT NULL FK compliance. Always
           // the admin who saved the WhatsApp config.
           config.user_id,
-          decryptedAccessToken
+          decryptedAccessToken,
+          config.id
         )
       }
     }
@@ -536,12 +537,17 @@ async function tagContactNoWhatsApp(accountId: string, contactId: string) {
     if (!tag) {
       // Attributed to the account owner — mirrors the configOwnerUserId
       // pattern used elsewhere in this file for automated, no-human-actor
-      // inserts that need a NOT NULL user_id FK.
-      const { data: config } = await db
+      // inserts that need a NOT NULL user_id FK. Any config row's owner
+      // works here (this is just audit attribution, not a send), so we
+      // don't need a specific number — `.limit(1)` instead of
+      // `.maybeSingle()` because an account can have more than one
+      // config row (migration 039) and `.maybeSingle()` errors on ≥2.
+      const { data: configRows } = await db
         .from('whatsapp_config')
         .select('user_id')
         .eq('account_id', accountId)
-        .maybeSingle()
+        .limit(1)
+      const config = configRows?.[0]
       if (!config) return // no config, no owner to attribute the tag to
 
       const { data: created, error: createErr } = await db
@@ -751,7 +757,11 @@ async function processMessage(
   // (contacts, conversations). Always the admin who saved the
   // WhatsApp config; the choice is arbitrary post-017 but stable.
   configOwnerUserId: string,
-  accessToken: string
+  accessToken: string,
+  // Which of the account's (possibly several, migration 039) numbers
+  // this message actually arrived on — stamped on the conversation
+  // (as its "current number") and on the message itself.
+  whatsappConfigId: string
 ) {
   const senderPhone = normalizePhone(message.from)
   const contactName = contact.profile.name
@@ -775,7 +785,8 @@ async function processMessage(
   const convResult = await findOrCreateConversation(
     accountId,
     configOwnerUserId,
-    contactRecord.id
+    contactRecord.id,
+    whatsappConfigId
   )
   if (!convResult) return
   const conversation = convResult.conversation
@@ -801,7 +812,7 @@ async function processMessage(
 
   // Parse message content based on type
   const { contentText, mediaUrl, mediaType, interactiveReplyId } =
-    await parseMessageContent(message, accessToken)
+    await parseMessageContent(message, accessToken, whatsappConfigId)
 
   // Resolve swipe-reply context if present. A missing parent is fine —
   // we just store NULL and the UI renders the message without a quote.
@@ -878,6 +889,7 @@ async function processMessage(
     // the column; null for every other content_type so existing inserts
     // behave identically.
     interactive_reply_id: interactiveReplyId,
+    whatsapp_config_id: whatsappConfigId,
   })
 
   if (msgError) {
@@ -1074,7 +1086,12 @@ async function processMessage(
 
 async function parseMessageContent(
   message: WhatsAppMessage,
-  accessToken: string
+  accessToken: string,
+  // Stamped onto the media proxy URL as a query param so
+  // /api/whatsapp/media/[mediaId] knows which number's token to use
+  // when re-fetching from Meta later (media IDs are scoped to the WABA
+  // that received them, not shared across an account's numbers).
+  whatsappConfigId: string
 ): Promise<{
   contentText: string | null
   mediaUrl: string | null
@@ -1097,7 +1114,7 @@ async function parseMessageContent(
   ): Promise<string | null> => {
     try {
       await getMediaUrl({ mediaId, accessToken })
-      return `/api/whatsapp/media/${mediaId}`
+      return `/api/whatsapp/media/${mediaId}?whatsapp_config_id=${whatsappConfigId}`
     } catch (error) {
       console.error(
         `Failed to verify media ${mediaId} with Meta:`,
@@ -1306,6 +1323,7 @@ async function findOrCreateConversation(
   accountId: string,
   configOwnerUserId: string,
   contactId: string,
+  whatsappConfigId: string,
 ) {
   // Look for an existing conversation in this account, oldest-first.
   //
@@ -1334,7 +1352,21 @@ async function findOrCreateConversation(
   }
 
   if (existingRows && existingRows.length > 0) {
-    return { conversation: existingRows[0], created: false }
+    const existing = existingRows[0]
+    // Multi-number accounts share one conversation per contact
+    // (migration 039) — the thread's "current number" moves to
+    // whichever number the contact most recently messaged, so replies
+    // go out on the same line the customer is actually talking to.
+    // Single-number accounts never see a different id here, so this
+    // is a no-op update for them.
+    if (existing.whatsapp_config_id !== whatsappConfigId) {
+      await supabaseAdmin()
+        .from('conversations')
+        .update({ whatsapp_config_id: whatsappConfigId })
+        .eq('id', existing.id)
+      existing.whatsapp_config_id = whatsappConfigId
+    }
+    return { conversation: existing, created: false }
   }
 
   // Create new conversation. Same tenancy + audit split as
@@ -1345,6 +1377,7 @@ async function findOrCreateConversation(
       account_id: accountId,
       user_id: configOwnerUserId,
       contact_id: contactId,
+      whatsapp_config_id: whatsappConfigId,
     })
     .select()
     .single()

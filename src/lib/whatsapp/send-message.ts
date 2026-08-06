@@ -36,6 +36,7 @@ import {
 } from '@/lib/whatsapp/interactive';
 import { decrypt, encrypt, isLegacyFormat } from '@/lib/whatsapp/encryption';
 import { supabaseAdmin } from '@/lib/flows/admin-client';
+import { resolveWhatsAppConfig, WhatsAppConfigNotFoundError } from '@/lib/whatsapp/resolve-config';
 import {
   sanitizePhoneForMeta,
   isValidE164,
@@ -247,19 +248,19 @@ export async function sendMessageToConversation(
     );
   }
 
-  // WhatsApp config, account-scoped.
-  const { data: config, error: configError } = await db
-    .from('whatsapp_config')
-    .select('*')
-    .eq('account_id', accountId)
-    .single();
-
-  if (configError || !config) {
-    throw new SendMessageError(
-      'whatsapp_not_configured',
-      'WhatsApp not configured. Please set up your WhatsApp integration first.',
-      400
-    );
+  // WhatsApp config — the number this conversation is currently pinned
+  // to (set by the inbound webhook to whichever number the contact
+  // most recently messaged), falling back to the account's default
+  // number for conversations created before multi-number support or
+  // that otherwise have no pin yet.
+  let config;
+  try {
+    config = await resolveWhatsAppConfig(db, accountId, conversation.whatsapp_config_id);
+  } catch (err) {
+    if (err instanceof WhatsAppConfigNotFoundError) {
+      throw new SendMessageError('whatsapp_not_configured', err.message, 400);
+    }
+    throw err;
   }
 
   const accessToken = decrypt(config.access_token);
@@ -316,6 +317,7 @@ export async function sendMessageToConversation(
       .from('message_templates')
       .select('*')
       .eq('account_id', accountId)
+      .eq('waba_id', config.waba_id)
       .eq('name', templateName)
       .eq('language', templateLanguage || 'en_US')
       .maybeSingle();
@@ -462,6 +464,7 @@ export async function sendMessageToConversation(
       message_id: waMessageId,
       status: 'sent',
       reply_to_message_id: replyToMessageId || null,
+      whatsapp_config_id: config.id,
     })
     .select()
     .single();

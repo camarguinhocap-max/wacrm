@@ -29,6 +29,7 @@ import {
 import { isMessageTemplate } from '@/lib/whatsapp/template-row-guard';
 import type { MessageTemplate } from '@/types';
 import { findOrCreateContact } from '@/lib/api/v1/contacts';
+import { resolveWhatsAppConfig, WhatsAppConfigNotFoundError } from '@/lib/whatsapp/resolve-config';
 
 /** Thrown by createBroadcast on a caller-visible failure; route maps it. */
 export class BroadcastError extends Error {
@@ -54,6 +55,8 @@ export interface CreateBroadcastParams {
   templateName: string;
   templateLanguage?: string | null;
   recipients: BroadcastRecipientInput[];
+  /** Which of the account's numbers to send from. Defaults to the account's default number. */
+  whatsappConfigId?: string | null;
 }
 
 interface PlannedRecipient {
@@ -88,7 +91,7 @@ export async function createBroadcast(
   auditUserId: string,
   params: CreateBroadcastParams
 ): Promise<BroadcastPlan> {
-  const { name, templateName, recipients } = params;
+  const { name, templateName, recipients, whatsappConfigId } = params;
   const templateLanguage = params.templateLanguage || 'en_US';
 
   if (!templateName) {
@@ -109,28 +112,29 @@ export async function createBroadcast(
     );
   }
 
-  // Config (fail fast + provides the audit trail owner already resolved
-  // by the caller). Meta send needs phone_number_id + decrypted token.
-  const { data: config, error: configError } = await db
-    .from('whatsapp_config')
-    .select('*')
-    .eq('account_id', accountId)
-    .single();
-  if (configError || !config) {
-    throw new BroadcastError(
-      'whatsapp_not_configured',
-      'WhatsApp not configured. Please set up your WhatsApp integration first.',
-      400
-    );
+  // Config — the number to send from (explicit `whatsappConfigId`, or
+  // the account's default). Meta send needs phone_number_id + decrypted
+  // token.
+  let config;
+  try {
+    config = await resolveWhatsAppConfig(db, accountId, whatsappConfigId);
+  } catch (err) {
+    if (err instanceof WhatsAppConfigNotFoundError) {
+      throw new BroadcastError('whatsapp_not_configured', err.message, 400);
+    }
+    throw err;
   }
   const accessToken = decrypt(config.access_token);
 
-  // Template row (once) for header/button components; guard a
-  // malformed local row rather than N identical opaque failures.
+  // Template row (once) for header/button components, scoped to this
+  // number's WABA — templates are only usable from the WABA that owns
+  // them (migration 039). Guard a malformed local row rather than N
+  // identical opaque failures.
   const { data: rawTemplateRow } = await db
     .from('message_templates')
     .select('*')
     .eq('account_id', accountId)
+    .eq('waba_id', config.waba_id)
     .eq('name', templateName)
     .eq('language', templateLanguage)
     .maybeSingle();
@@ -203,6 +207,7 @@ export async function createBroadcast(
       template_language: templateLanguage,
       status: 'sending',
       total_recipients: deduped.length,
+      whatsapp_config_id: config.id,
     })
     .select('id')
     .single();

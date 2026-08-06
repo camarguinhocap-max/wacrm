@@ -29,6 +29,10 @@ export default function NewBroadcastPage() {
 
   const [currentStep, setCurrentStep] = useState(0);
   const [template, setTemplate] = useState<MessageTemplate | null>(null);
+  // Which of the account's numbers (migration 039) to send from —
+  // chosen in Step 1 alongside the template, since templates are
+  // scoped to a WABA and the picker there filters by it.
+  const [whatsappConfigId, setWhatsappConfigId] = useState<string | null>(null);
   const [audience, setAudience] = useState<{
     type: 'all' | 'tags' | 'custom_field' | 'csv';
     tagIds?: string[];
@@ -65,6 +69,7 @@ export default function NewBroadcastPage() {
         },
         variables,
         headerMediaUrl,
+        whatsappConfigId,
       });
       router.push(`/broadcasts/${broadcastId}`);
     } catch (err) {
@@ -115,6 +120,7 @@ export default function NewBroadcastPage() {
         type: audience.type,
         tagIds: audience.tagIds,
       },
+      whatsapp_config_id: whatsappConfigId,
       status: 'draft',
       total_recipients: 0,
       sent_count: 0,
@@ -195,6 +201,8 @@ export default function NewBroadcastPage() {
             <Step1ChooseTemplate
               selectedTemplate={template}
               onSelect={setTemplate}
+              whatsappConfigId={whatsappConfigId}
+              onSelectNumber={setWhatsappConfigId}
               onNext={() => setCurrentStep(1)}
               onBack={() => router.push('/broadcasts')}
             />

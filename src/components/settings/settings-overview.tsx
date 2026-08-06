@@ -27,8 +27,8 @@ interface OverviewCounts {
 }
 
 interface WhatsAppStatus {
-  configured: boolean;
-  connected: boolean;
+  total: number;
+  connected: number;
 }
 
 export function SettingsOverview({
@@ -117,21 +117,22 @@ export function SettingsOverview({
       setCountsLoading(false);
     })();
 
-    // WhatsApp connection status — slower, independent.
+    // WhatsApp connection status — an account can have more than one
+    // number (migration 039), so this is now a "N of M connected"
+    // count rather than a single boolean. Reads the DB-stored `status`
+    // column per number (set at save/register time) rather than
+    // re-pinging Meta for every number on every overview load.
     (async () => {
       setWhatsappLoading(true);
-      const [row, health] = await Promise.allSettled([
-        supabase
-          .from('whatsapp_config')
-          .select('phone_number_id')
-          .eq('account_id', acctId)
-          .maybeSingle(),
-        fetch('/api/whatsapp/config', { cache: 'no-store' }).then((r) => r.json()),
-      ]);
+      const { data, error } = await supabase
+        .from('whatsapp_config')
+        .select('status')
+        .eq('account_id', acctId);
       if (cancelled) return;
+      const rows = !error && Array.isArray(data) ? data : [];
       setWhatsapp({
-        configured: row.status === 'fulfilled' && !!row.value.data?.phone_number_id,
-        connected: health.status === 'fulfilled' && !!health.value?.connected,
+        total: rows.length,
+        connected: rows.filter((r) => r.status === 'connected').length,
       });
       setWhatsappLoading(false);
     })();
@@ -161,15 +162,17 @@ export function SettingsOverview({
     {
       section: 'whatsapp',
       loading: whatsappLoading,
-      subtitle: !whatsapp?.configured ? (
+      subtitle: !whatsapp || whatsapp.total === 0 ? (
         t('notSetup')
-      ) : whatsapp.connected ? (
+      ) : whatsapp.connected === whatsapp.total ? (
         <>
-          <StatusDot tone="ok" /> {t('connected')}
+          <StatusDot tone="ok" />{' '}
+          {t('numbersConnected', { connected: whatsapp.connected, total: whatsapp.total })}
         </>
       ) : (
         <>
-          <StatusDot tone="muted" /> {t('needsReconnecting')}
+          <StatusDot tone="muted" />{' '}
+          {t('numbersConnected', { connected: whatsapp.connected, total: whatsapp.total })}
         </>
       ),
     },

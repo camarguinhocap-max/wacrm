@@ -50,6 +50,9 @@ interface BroadcastPayload {
    * falls back to the template's stored URL only when this is empty.
    */
   headerMediaUrl?: string;
+  /** Which of the account's numbers (migration 039) to send from.
+   *  Falls back to the account's default when omitted. */
+  whatsappConfigId?: string | null;
 }
 
 interface UseBroadcastSendingReturn {
@@ -381,6 +384,7 @@ export function useBroadcastSending(): UseBroadcastSendingReturn {
             excludeTagIds: payload.audience.excludeTagIds,
           },
           status: 'sending',
+          whatsapp_config_id: payload.whatsappConfigId ?? null,
           total_recipients: contacts.length,
           sent_count: 0,
           delivered_count: 0,
@@ -493,6 +497,7 @@ export function useBroadcastSending(): UseBroadcastSendingReturn {
               recipients: apiRecipients,
               template_name: payload.template.name,
               template_language: payload.template.language ?? 'en_US',
+              whatsapp_config_id: payload.whatsappConfigId ?? null,
             }),
           });
 

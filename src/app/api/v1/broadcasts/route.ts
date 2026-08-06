@@ -7,6 +7,9 @@
 //     "name": "July promo",                 // optional label
 //     "template_name": "promo_july",        // required, approved template
 //     "template_language": "en_US",         // optional (default en_US)
+//     "whatsapp_config_id": "uuid",          // optional — which number
+//                                             // to send from (default:
+//                                             // the account's default)
 //     "recipients": [                        // required, 1..1000
 //       { "to": "+14155550123", "params": ["Jane"] },
 //       { "to": "+14155550124" }
@@ -72,6 +75,10 @@ export async function POST(request: Request) {
         to: typeof r?.to === 'string' ? r.to : '',
         params: Array.isArray(r?.params) ? r.params : undefined,
       })),
+      whatsappConfigId:
+        typeof body.whatsapp_config_id === 'string'
+          ? body.whatsapp_config_id
+          : null,
     });
 
     // Fan out after the response is sent. Uses the same service-role

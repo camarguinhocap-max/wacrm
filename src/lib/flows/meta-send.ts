@@ -16,6 +16,28 @@ import {
   isRecipientNotAllowedError,
 } from '@/lib/whatsapp/phone-utils'
 import { supabaseAdmin } from './admin-client'
+import { resolveWhatsAppConfig } from '@/lib/whatsapp/resolve-config'
+
+/**
+ * Shared "which number does this conversation currently talk on"
+ * lookup, used by every sender below instead of a blind account-wide
+ * `whatsapp_config` fetch (which breaks once an account has more than
+ * one number — migration 039). Falls back to the account's default
+ * when the conversation has no pin yet (pre-migration rows).
+ */
+async function resolveConversationConfig(
+  db: ReturnType<typeof supabaseAdmin>,
+  accountId: string,
+  conversationId: string,
+) {
+  const { data: conversation } = await db
+    .from('conversations')
+    .select('whatsapp_config_id')
+    .eq('id', conversationId)
+    .eq('account_id', accountId)
+    .maybeSingle()
+  return resolveWhatsAppConfig(db, accountId, conversation?.whatsapp_config_id)
+}
 
 // ------------------------------------------------------------
 // Flows-side Meta sender (interactive variants).
@@ -82,12 +104,10 @@ export async function engineSendText(
     throw new Error(`contact phone invalid: ${contact.phone}`)
   }
 
-  const { data: config, error: configErr } = await db
-    .from('whatsapp_config')
-    .select('*')
-    .eq('account_id', args.accountId)
-    .single()
-  if (configErr || !config) {
+  let config
+  try {
+    config = await resolveConversationConfig(db, args.accountId, args.conversationId)
+  } catch {
     throw new Error('WhatsApp not configured for this account')
   }
 
@@ -133,6 +153,7 @@ export async function engineSendText(
     message_id: waMessageId,
     status: 'sent',
     ai_generated: args.aiGenerated ?? false,
+    whatsapp_config_id: config.id,
   })
   if (msgErr) {
     throw new Error(`sent to Meta but DB insert failed: ${msgErr.message}`)
@@ -192,12 +213,10 @@ export async function engineSendMedia(
     throw new Error(`contact phone invalid: ${contact.phone}`)
   }
 
-  const { data: config, error: configErr } = await db
-    .from('whatsapp_config')
-    .select('*')
-    .eq('account_id', args.accountId)
-    .single()
-  if (configErr || !config) {
+  let config
+  try {
+    config = await resolveConversationConfig(db, args.accountId, args.conversationId)
+  } catch {
     throw new Error('WhatsApp not configured for this account')
   }
 
@@ -250,6 +269,7 @@ export async function engineSendMedia(
     content_text: args.caption ?? null,
     message_id: waMessageId,
     status: 'sent',
+    whatsapp_config_id: config.id,
   })
   if (msgErr) {
     throw new Error(`sent to Meta but DB insert failed: ${msgErr.message}`)
@@ -344,12 +364,10 @@ async function sendInteractiveViaMeta(
     throw new Error(`contact phone invalid: ${contact.phone}`)
   }
 
-  const { data: config, error: configErr } = await db
-    .from('whatsapp_config')
-    .select('*')
-    .eq('account_id', input.accountId)
-    .single()
-  if (configErr || !config) {
+  let config
+  try {
+    config = await resolveConversationConfig(db, input.accountId, input.conversationId)
+  } catch {
     throw new Error('WhatsApp not configured for this account')
   }
 
@@ -443,6 +461,7 @@ async function sendInteractiveViaMeta(
     interactive_payload: interactivePayload,
     message_id: waMessageId,
     status: 'sent',
+    whatsapp_config_id: config.id,
   })
   if (msgErr) {
     throw new Error(`sent to Meta but DB insert failed: ${msgErr.message}`)

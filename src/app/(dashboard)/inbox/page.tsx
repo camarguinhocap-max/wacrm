@@ -200,13 +200,19 @@ function InboxPageInner() {
         return;
       }
 
+      // An account can have more than one number (migration 039), so
+      // `.maybeSingle()` here would throw once a second one is added —
+      // the banner would then wrongly claim "not connected" even with
+      // a fully working number. Any connected row is enough to clear
+      // the banner; the per-number detail lives in Settings.
       const { data } = await supabase
         .from("whatsapp_config")
         .select("status")
-        .eq("account_id", accountId)
-        .maybeSingle();
+        .eq("account_id", accountId);
 
-      setWhatsappConnected(data?.status === "connected");
+      setWhatsappConnected(
+        Array.isArray(data) && data.some((row) => row.status === "connected"),
+      );
     };
 
     checkConnection();

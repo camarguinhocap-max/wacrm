@@ -2,6 +2,10 @@ import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { getMediaUrl, downloadMedia } from '@/lib/whatsapp/meta-api'
 import { decrypt } from '@/lib/whatsapp/encryption'
+import {
+  resolveWhatsAppConfig,
+  WhatsAppConfigNotFoundError,
+} from '@/lib/whatsapp/resolve-config'
 
 export async function GET(
   request: Request,
@@ -48,18 +52,25 @@ export async function GET(
       )
     }
 
-    // Fetch and decrypt WhatsApp config
-    const { data: config, error: configError } = await supabase
-      .from('whatsapp_config')
-      .select('*')
-      .eq('account_id', accountId)
-      .single()
+    // Which number's token to fetch this media with — stamped on the
+    // URL at webhook-processing time (media IDs are scoped to the WABA
+    // that received them). Falls back to the account's default for
+    // older URLs saved before that stamping existed.
+    const whatsappConfigId = new URL(request.url).searchParams.get(
+      'whatsapp_config_id'
+    )
 
-    if (configError || !config) {
-      return NextResponse.json(
-        { error: 'WhatsApp not configured' },
-        { status: 400 }
-      )
+    let config
+    try {
+      config = await resolveWhatsAppConfig(supabase, accountId, whatsappConfigId)
+    } catch (err) {
+      if (err instanceof WhatsAppConfigNotFoundError) {
+        return NextResponse.json(
+          { error: 'WhatsApp not configured' },
+          { status: 400 }
+        )
+      }
+      throw err
     }
 
     const accessToken = decrypt(config.access_token)

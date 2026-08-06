@@ -293,6 +293,14 @@ export interface WhatsAppConfig {
   subscribed_apps_at?: string;
   /** Last error from /register; cleared on success. */
   last_registration_error?: string;
+  /**
+   * True for exactly one row per account (migration 039). New
+   * conversations/broadcasts fall back to this number when no
+   * specific one is chosen — see `resolveWhatsAppConfig`.
+   */
+  is_default?: boolean;
+  /** Optional user-facing name to tell numbers apart in the UI. */
+  label?: string | null;
 }
 
 // Raw Meta status enum. We persist this verbatim from Meta (sync + webhook)

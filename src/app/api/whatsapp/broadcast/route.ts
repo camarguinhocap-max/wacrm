@@ -15,6 +15,10 @@ import {
   rateLimitResponse,
   RATE_LIMITS,
 } from '@/lib/rate-limit'
+import {
+  resolveWhatsAppConfig,
+  WhatsAppConfigNotFoundError,
+} from '@/lib/whatsapp/resolve-config'
 
 interface BroadcastResult {
   phone: string
@@ -89,6 +93,7 @@ export async function POST(request: Request) {
       template_name,
       template_language,
       template_params,
+      whatsapp_config_id: whatsappConfigId,
     } = body
 
     // Normalize to a list of {phone, params} regardless of shape.
@@ -120,20 +125,20 @@ export async function POST(request: Request) {
       )
     }
 
-    const { data: config, error: configError } = await supabase
-      .from('whatsapp_config')
-      .select('*')
-      .eq('account_id', accountId)
-      .single()
-
-    if (configError || !config) {
-      return NextResponse.json(
-        {
-          error:
-            'WhatsApp not configured. Please set up your WhatsApp integration first.',
-        },
-        { status: 400 }
-      )
+    let config
+    try {
+      config = await resolveWhatsAppConfig(supabase, accountId, whatsappConfigId)
+    } catch (err) {
+      if (err instanceof WhatsAppConfigNotFoundError) {
+        return NextResponse.json(
+          {
+            error:
+              'WhatsApp not configured. Please set up your WhatsApp integration first.',
+          },
+          { status: 400 }
+        )
+      }
+      throw err
     }
 
     const accessToken = decrypt(config.access_token)
@@ -143,10 +148,15 @@ export async function POST(request: Request) {
     // the loop would N+1 against Supabase for every recipient.
     // Guard against a malformed local row crashing every send in
     // the loop with the same opaque TypeError — fail loudly once.
+    // Scoped to this number's WABA (migration 039) — the same
+    // template name can exist under more than one WABA on the
+    // account, and sending must use the variant that actually belongs
+    // to the number we're sending from.
     const { data: rawTemplateRow } = await supabase
       .from('message_templates')
       .select('*')
       .eq('account_id', accountId)
+      .eq('waba_id', config.waba_id)
       .eq('name', template_name)
       .eq('language', template_language || 'en_US')
       .maybeSingle()

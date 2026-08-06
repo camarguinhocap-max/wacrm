@@ -8,6 +8,7 @@ import {
 import { decrypt } from '@/lib/whatsapp/encryption'
 import { normalizeStatus } from '@/lib/whatsapp/template-status-normalize'
 import type { TemplateButton, TemplateSampleValues } from '@/types'
+import { resolveWhatsAppConfig, WhatsAppConfigNotFoundError } from '@/lib/whatsapp/resolve-config'
 
 /**
  * Sync message templates from Meta → local message_templates table.
@@ -127,7 +128,7 @@ function extractSampleValues(
   return sv
 }
 
-export async function POST() {
+export async function POST(request: Request) {
   try {
     // Syncing rewrites the account-wide template catalog, which is
     // settings-class data: `canEditSettings` and the message_templates
@@ -135,20 +136,30 @@ export async function POST() {
     // Resolving account_id off the profile only proved membership.
     const { supabase, accountId, userId } = await requireRole('admin')
 
-    const { data: config, error: configError } = await supabase
-      .from('whatsapp_config')
-      .select('*')
-      .eq('account_id', accountId)
-      .single()
+    // Which number's WABA to sync from — an explicit choice (an
+    // account with >1 number picks one per sync) or the account's
+    // default. Body is optional, so a bare POST (today's only caller)
+    // keeps working unchanged.
+    const body = (await request.json().catch(() => null)) as {
+      whatsapp_config_id?: string
+    } | null
+    const whatsappConfigId =
+      typeof body?.whatsapp_config_id === 'string' ? body.whatsapp_config_id : null
 
-    if (configError || !config) {
-      return NextResponse.json(
-        {
-          error:
-            'WhatsApp not configured. Connect your WhatsApp Business account in Settings first.',
-        },
-        { status: 400 },
-      )
+    let config
+    try {
+      config = await resolveWhatsAppConfig(supabase, accountId, whatsappConfigId)
+    } catch (err) {
+      if (err instanceof WhatsAppConfigNotFoundError) {
+        return NextResponse.json(
+          {
+            error:
+              'WhatsApp not configured. Connect your WhatsApp Business account in Settings first.',
+          },
+          { status: 400 },
+        )
+      }
+      throw err
     }
 
     if (!config.waba_id) {
@@ -223,6 +234,8 @@ export async function POST() {
         // post-017, so an INSERT without it errors.
         account_id: accountId,
         user_id: userId,
+        waba_id: config.waba_id,
+        whatsapp_config_id: config.id,
         name: t.name,
         category: normalizeCategory(t.category),
         language: t.language,
@@ -243,6 +256,7 @@ export async function POST() {
         .from('message_templates')
         .select('id')
         .eq('account_id', accountId)
+        .eq('waba_id', config.waba_id)
         .eq('name', t.name)
         .eq('language', t.language)
         .maybeSingle()
