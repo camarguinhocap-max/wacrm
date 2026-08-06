@@ -16,6 +16,7 @@ import {
   Sparkles,
   ZoomIn,
   ZoomOut,
+  Download,
 } from "lucide-react";
 import { format } from "date-fns";
 import { ReplyQuote } from "./reply-quote";
@@ -68,6 +69,21 @@ const LIGHTBOX_ZOOM_STEP = 0.5;
 
 function clampZoom(value: number) {
   return Math.min(LIGHTBOX_MAX_ZOOM, Math.max(LIGHTBOX_MIN_ZOOM, value));
+}
+
+/** Best-effort filename for the download button — pulls the basename
+ *  off the media URL's path (stripping any query string) so saved
+ *  files get a real name/extension instead of a UUID-less blob. Falls
+ *  back to the message's alt text if the URL doesn't parse. */
+function guessFilename(url: string, fallback: string) {
+  try {
+    const { pathname } = new URL(url, "https://placeholder.invalid");
+    const base = decodeURIComponent(pathname.split("/").pop() ?? "");
+    if (base) return base;
+  } catch {
+    // Not a valid absolute/relative URL — fall through to fallback.
+  }
+  return fallback || "imagem.jpg";
 }
 
 function MediaImage({ url, alt }: { url: string; alt: string }) {
@@ -126,6 +142,36 @@ function MediaImage({ url, alt }: { url: string; alt: string }) {
   function handlePointerUp() {
     setIsDragging(false);
     dragStateRef.current = null;
+  }
+
+  // Even 8x zoom is still limited by the photo's native resolution —
+  // saving the original file lets the agent open it in a real image
+  // viewer / editor and zoom as far as the source pixels allow. `src`
+  // is either an already-created blob: URL (proxied media, see
+  // loadImage below) or a direct https URL (Supabase storage); fetching
+  // it as a blob either way forces a real file download via a
+  // temporary <a download>, instead of a bare href just opening the
+  // image in a new tab (the default browser behaviour for image
+  // content-types).
+  async function handleDownload() {
+    if (!src) return;
+    try {
+      const res = await fetch(src);
+      if (!res.ok) throw new Error("Failed to fetch image for download");
+      const blob = await res.blob();
+      const blobUrl = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = blobUrl;
+      a.download = guessFilename(url, alt);
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(blobUrl);
+    } catch {
+      // Fallback so the user can still save manually (e.g. right-click
+      // → save image) if the fetch is blocked for some reason.
+      window.open(src, "_blank");
+    }
   }
 
   const loadImage = useCallback(async () => {
@@ -250,6 +296,16 @@ function MediaImage({ url, alt }: { url: string; alt: string }) {
                 aria-label="Aumentar zoom"
               >
                 <ZoomIn className="h-4 w-4" />
+              </button>
+              <div className="h-4 w-px bg-white/20" />
+              <button
+                type="button"
+                onClick={handleDownload}
+                className="flex h-7 w-7 items-center justify-center rounded-full text-white transition-colors hover:bg-white/20"
+                aria-label="Baixar imagem"
+                title="Baixar imagem original"
+              >
+                <Download className="h-4 w-4" />
               </button>
             </div>
           </div>
