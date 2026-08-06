@@ -60,7 +60,10 @@ function MediaUnavailable({ label, t }: { label: string, t: ReturnType<typeof us
 }
 
 const LIGHTBOX_MIN_ZOOM = 1;
-const LIGHTBOX_MAX_ZOOM = 4;
+// Bumped from 4x to 8x — bill photos often have fine print (consumer
+// unit numbers, addresses) that's still unreadable at 4x on a phone
+// photo's native resolution.
+const LIGHTBOX_MAX_ZOOM = 8;
 const LIGHTBOX_ZOOM_STEP = 0.5;
 
 function clampZoom(value: number) {
