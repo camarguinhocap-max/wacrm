@@ -35,6 +35,16 @@ interface Profile {
   beta_features: string[];
   account_id: string | null;
   account_role: AccountRole | null;
+    /**
+       * Per-feature override on top of `account_role`: when true, this
+          * member can see the sales pipeline (funil) but cannot create/
+             * edit/move/delete deals, even though their account_role (usually
+                * 'agent') would normally allow it. Mirrored by the `can_edit_deals`
+                   * RLS function on `deals` — this client-side flag only drives UI
+                      * affordances (hiding buttons, disabling drag), the DB is the real
+                         * enforcement.
+                            */
+    deals_view_only: boolean;
 }
 
 interface AccountSummary {
@@ -102,6 +112,10 @@ interface AuthContextValue {
   canEditSettings: boolean;
   /** True if the caller can send messages and edit operational data (agent+). */
   canSendMessages: boolean;
+    /** True if the caller can create/edit/move/delete deals — agent+ AND
+       *  not flagged `deals_view_only`. False for a view-only funil member
+          *  even though they're otherwise a full agent. */
+    canEditDeals: boolean;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -138,7 +152,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const { data, error } = await supabase
         .from("profiles")
         .select(
-          "id, full_name, email, avatar_url, role, beta_features, account_id, account_role, telegram_chat_id",
+          "id, full_name, email, avatar_url, role, beta_features, account_id, account_role, telegram_chat_id, deals_view_only",
         )
         .eq("user_id", userId)
         .maybeSingle();
@@ -213,6 +227,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           account_id: data.account_id ?? null,
           account_role: accountRole,
           telegram_chat_id: data.telegram_chat_id ?? null,
+                    deals_view_only: data.deals_view_only ?? false,
         });
         setAccount(accountRow);
       } else {
@@ -331,8 +346,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       canManageMembers: role ? canManageMembersFor(role) : false,
       canEditSettings: role ? canEditSettingsFor(role) : false,
       canSendMessages: role ? canSendMessagesFor(role) : false,
+            canEditDeals:
+                      (role ? canSendMessagesFor(role) : false) &&
+                      !(profile?.deals_view_only ?? false),
     };
-  }, [profile?.account_role, profile?.account_id]);
+  }, [profile?.account_role, profile?.account_id, profile?.deals_view_only]);
 
   return (
     <AuthContext.Provider
@@ -384,6 +402,7 @@ export function useAuth(): AuthContextValue {
       canManageMembers: false,
       canEditSettings: false,
       canSendMessages: false,
+            canEditDeals: false,
     };
   }
   return ctx;
