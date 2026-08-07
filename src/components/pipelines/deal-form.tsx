@@ -42,6 +42,10 @@ interface DealFormProps {
   stages: PipelineStage[];
   defaultStageId?: string;
   onSaved: () => void;
+  /** View-only members can open a deal to see its details, but
+   * every field is disabled and save/delete/status controls are
+    * hidden. RLS on `deals` blocks the writes regardless. */
+  readOnly?: boolean;
 }
 
 export function DealForm({
@@ -52,6 +56,7 @@ export function DealForm({
   stages,
   defaultStageId,
   onSaved,
+  readOnly = false,
 }: DealFormProps) {
   const t = useTranslations("Pipelines.form");
   const supabase = createClient();
@@ -254,7 +259,7 @@ export function DealForm({
         <div className="flex h-full flex-col">
           <SheetHeader className="border-b border-border/50 p-4">
             <SheetTitle className="text-popover-foreground">
-              {deal ? t("editDeal") : t("newDeal")}
+              {deal ? (readOnly ? t("viewDeal") : t("editDeal")) : t("newDeal")}
             </SheetTitle>
           </SheetHeader>
 
@@ -266,6 +271,7 @@ export function DealForm({
                 onChange={(e) => setTitle(e.target.value)}
                 placeholder={t("titlePlaceholder")}
                 className="border-border bg-muted text-foreground"
+                disabled={readOnly}
               />
             </div>
 
@@ -274,7 +280,8 @@ export function DealForm({
               <select
                 value={contactId}
                 onChange={(e) => setContactId(e.target.value)}
-                className="h-9 w-full rounded-lg border border-border bg-muted px-2.5 text-sm text-foreground outline-none focus:border-primary focus:ring-1 focus:ring-primary"
+                className="h-9 w-full rounded-lg border border-border bg-muted px-2.5 text-sm text-foreground outline-none focus:border-primary focus:ring-1 focus:ring-primary disabled:opacity-60"
+                disabled={readOnly}
               >
                 <option value="">{t("selectContact")}</option>
                 {contacts.map((c) => (
@@ -306,6 +313,7 @@ export function DealForm({
                     onChange={(e) => setValue(e.target.value)}
                     placeholder="0"
                     className="border-border bg-muted pl-7 text-foreground"
+                    disabled={readOnly}
                   />
                 </div>
               </div>
@@ -314,7 +322,8 @@ export function DealForm({
                 <select
                   value={currency}
                   onChange={(e) => setCurrency(e.target.value)}
-                  className="h-9 w-full rounded-lg border border-border bg-muted px-2.5 text-sm text-foreground outline-none focus:border-primary"
+                  className="h-9 w-full rounded-lg border border-border bg-muted px-2.5 text-sm text-foreground outline-none focus:border-primary disabled:opacity-60"
+                  disabled={readOnly}
                 >
                   {CURRENCIES.map((c) => (
                     <option key={c.code} value={c.code}>
@@ -332,6 +341,7 @@ export function DealForm({
                 value={expectedCloseDate}
                 onChange={(e) => setExpectedCloseDate(e.target.value)}
                 className="border-border bg-muted text-foreground"
+                disabled={readOnly}
               />
             </div>
 
@@ -340,7 +350,8 @@ export function DealForm({
               <select
                 value={stageId}
                 onChange={(e) => setStageId(e.target.value)}
-                className="h-9 w-full rounded-lg border border-border bg-muted px-2.5 text-sm text-foreground outline-none focus:border-primary"
+                className="h-9 w-full rounded-lg border border-border bg-muted px-2.5 text-sm text-foreground outline-none focus:border-primary disabled:opacity-60"
+                disabled={readOnly}
               >
                 {stages.map((s) => (
                   <option key={s.id} value={s.id}>
@@ -355,7 +366,8 @@ export function DealForm({
               <select
                 value={assignedTo}
                 onChange={(e) => setAssignedTo(e.target.value)}
-                className="h-9 w-full rounded-lg border border-border bg-muted px-2.5 text-sm text-foreground outline-none focus:border-primary"
+                className="h-9 w-full rounded-lg border border-border bg-muted px-2.5 text-sm text-foreground outline-none focus:border-primary disabled:opacity-60"
+                disabled={readOnly}
               >
                 <option value="">{t("unassigned")}</option>
                 {profiles.map((p) => (
@@ -373,10 +385,11 @@ export function DealForm({
                 onChange={(e) => setNotes(e.target.value)}
                 placeholder={t("notesPlaceholder")}
                 className="min-h-[100px] border-border bg-muted text-foreground"
+                disabled={readOnly}
               />
             </div>
 
-            {deal && (
+            {deal && !readOnly && (
               <div className="space-y-2 rounded-lg border border-border bg-muted/50 p-3">
                 <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
                   {t("status")}
@@ -435,18 +448,20 @@ export function DealForm({
                 onClick={() => onOpenChange(false)}
                 className="flex-1 border-border bg-transparent text-muted-foreground hover:bg-muted"
               >
-                {t("cancel")}
+                {readOnly ? t("close") : t("cancel")}
               </Button>
-              <Button
+              {!readOnly && (
+        <Button
                 onClick={handleSave}
                 disabled={saving || !title.trim() || !contactId || !stageId}
                 className="flex-1 bg-primary text-primary-foreground hover:bg-primary/90"
               >
                 {saving ? t("saving") : deal ? t("saveChanges") : t("createDeal")}
               </Button>
+        )}
             </div>
 
-            {deal &&
+            {deal && !readOnly &&
               (confirmDelete ? (
                 <div className="mt-3 flex items-center justify-between gap-2 rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs">
                   <span className="text-red-300">{t("deletePrompt")}</span>
