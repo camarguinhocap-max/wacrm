@@ -101,7 +101,7 @@ const navItems: NavItem[] = [
   { href: "/inbox", labelKey: "inbox", icon: MessageSquare },
   { href: "/notifications", labelKey: "notifications", icon: Bell },
   { href: "/contacts", labelKey: "contacts", icon: Users, adminOnly: true },
-  { href: "/pipelines", labelKey: "pipelines", icon: GitBranch, adminOnly: true },
+  { href: "/pipelines", labelKey: "pipelines", icon: GitBranch },
   { href: "/broadcasts", labelKey: "broadcasts", icon: Radio, adminOnly: true },
   { href: "/automations", labelKey: "automations", icon: Zap, adminOnly: true },
   { href: "/flows", labelKey: "flows", icon: Workflow, beta: true, adminOnly: true },
