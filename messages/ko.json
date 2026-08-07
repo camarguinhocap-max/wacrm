@@ -508,6 +508,7 @@
     },
     "form": {
       "editDeal": "딜 수정",
+            "viewDeal": "거래 보기",
       "newDeal": "새 딜",
       "title": "제목",
       "titlePlaceholder": "딜 제목",
@@ -527,6 +528,7 @@
       "markAsLost": "실패로 표시",
       "reopenDeal": "딜 재개",
       "cancel": "취소",
+            "close": "닫기",
       "saving": "저장 중...",
       "saveChanges": "변경 사항 저장",
       "createDeal": "딜 만들기",
