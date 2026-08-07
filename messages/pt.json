@@ -508,6 +508,7 @@
     },
     "form": {
       "editDeal": "Editar Negócio",
+            "viewDeal": "Ver Negócio",
       "newDeal": "Novo Negócio",
       "title": "Título",
       "titlePlaceholder": "Título do negócio",
@@ -527,6 +528,7 @@
       "markAsLost": "Marcar como Perdido",
       "reopenDeal": "Reabrir negócio",
       "cancel": "Cancelar",
+            "close": "Fechar",
       "saving": "Salvando...",
       "saveChanges": "Salvar Alterações",
       "createDeal": "Criar Negócio",
