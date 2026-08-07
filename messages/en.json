@@ -508,6 +508,7 @@
     },
     "form": {
       "editDeal": "Edit Deal",
+            "viewDeal": "View Deal",
       "newDeal": "New Deal",
       "title": "Title",
       "titlePlaceholder": "Deal title",
@@ -527,6 +528,7 @@
       "markAsLost": "Mark as Lost",
       "reopenDeal": "Reopen deal",
       "cancel": "Cancel",
+            "close": "Close",
       "saving": "Saving...",
       "saveChanges": "Save Changes",
       "createDeal": "Create Deal",
