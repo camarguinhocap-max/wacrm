@@ -108,6 +108,21 @@ export async function runAutomationsForTrigger(input: DispatchInput): Promise<vo
     for (const automation of automations as Automation[]) {
       if (!triggerMatches(automation, input.context)) continue
       try {
+if (input.contactId) {
+    const { count } = await db
+          .from('automation_pending_executions')
+          .select('id', { count: 'exact', head: true })
+          .eq('automation_id', automation.id)
+          .eq('contact_id', input.contactId)
+          .in('status', ['pending', 'running'])
+        if ((count ?? 0) > 0) {
+              console.warn('[automations] skip: already has an in-flight run', {
+                      automationId: automation.id,
+                      contactId: input.contactId,
+              })
+                    continue
+        }
+}
         await executeAutomation(automation, input)
       } catch (err) {
         console.error('[automations] execute failed:', automation.id, err)
@@ -150,6 +165,15 @@ export async function resumePendingExecution(pending: {
     await markPending(pending.id, 'failed')
     return
   }
+
+    if (!(automation as Automation).is_active) {
+          // Automation was disabled after this row was queued (e.g. an
+          // operator pausing a misbehaving automation). Honor that instead of
+          // blindly sending — a disabled automation must not resume.
+          console.warn('[automations] resume: automation is inactive, skipping', pending.automation_id)
+          await markPending(pending.id, 'failed')
+          return
+    }
 
   try {
     await executeStepsFrom({
