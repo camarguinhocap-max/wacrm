@@ -49,7 +49,7 @@ export default function PipelinesPage() {
   const t = useTranslations("Pipelines.page");
   const supabase = createClient();
   const canEditSettings = useCan("edit-settings");
-  const canCreateDeals = useCan("send-messages");
+    const canCreateDeals = useCan("edit-deals");
   const { accountId } = useAuth();
 
   const [pipelines, setPipelines] = useState<Pipeline[]>([]);
@@ -419,6 +419,7 @@ export default function PipelinesPage() {
             onDealMoved={handleDealMoved}
             onAddDeal={handleAddDeal}
             onEditDeal={handleEditDeal}
+                        readOnly={!canCreateDeals}
           />
         </>
       )}
@@ -488,6 +489,7 @@ export default function PipelinesPage() {
         stages={stages}
         defaultStageId={defaultStageId}
         onSaved={refreshDeals}
+                readOnly={!canCreateDeals}
       />
     </div>
   );
