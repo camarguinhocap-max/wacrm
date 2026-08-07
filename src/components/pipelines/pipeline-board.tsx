@@ -28,6 +28,11 @@ interface PipelineBoardProps {
   onDealMoved: (dealId: string, newStageId: string) => void;
   onAddDeal: (stageId: string) => void;
   onEditDeal: (deal: Deal) => void;
+    /** View-only members can see the board but not create, edit,
+       *  drag, or delete deals. RLS on `deals` blocks the writes
+          *  regardless — this just keeps the UI from offering actions
+             *  that would fail. */
+    readOnly?: boolean;
 }
 
 export function PipelineBoard({
@@ -36,6 +41,7 @@ export function PipelineBoard({
   onDealMoved,
   onAddDeal,
   onEditDeal,
+    readOnly = false,
 }: PipelineBoardProps) {
   const { defaultCurrency } = useAuth();
   const [activeDealId, setActiveDealId] = useState<string | null>(null);
@@ -73,6 +79,7 @@ export function PipelineBoard({
 
   function handleDragEnd(event: DragEndEvent) {
     setActiveDealId(null);
+        if (readOnly) return; // belt-and-suspenders — drag is already disabled below
     const { active, over } = event;
     if (!over) return;
     const dealId = String(active.id);
@@ -119,6 +126,7 @@ export function PipelineBoard({
               currency={defaultCurrency}
               onAddDeal={onAddDeal}
               onEditDeal={onEditDeal}
+              readOnly={readOnly}
             />
           );
         })}
@@ -193,6 +201,7 @@ function StageColumn({
   currency,
   onAddDeal,
   onEditDeal,
+  readOnly,
 }: {
   stage: PipelineStage;
   deals: Deal[];
@@ -200,6 +209,7 @@ function StageColumn({
   currency: string;
   onAddDeal: (stageId: string) => void;
   onEditDeal: (deal: Deal) => void;
+        readOnly: boolean;
 }) {
   const t = useTranslations("Pipelines.board");
   const { setNodeRef, isOver } = useDroppable({ id: stage.id });
@@ -248,12 +258,14 @@ function StageColumn({
               deal={deal}
               stage={stage}
               onEdit={onEditDeal}
+              readOnly={readOnly}
             />
           ))
         )}
       </div>
 
-      <Button
+      {!readOnly && (
+        <Button
         variant="ghost"
         size="sm"
         onClick={() => onAddDeal(stage.id)}
@@ -262,6 +274,7 @@ function StageColumn({
         <Plus className="mr-1 h-3 w-3" />
         {t("addDeal")}
       </Button>
+        )}
     </div>
   );
 }
@@ -270,21 +283,27 @@ function DraggableDealCard({
   deal,
   stage,
   onEdit,
+  readOnly,
 }: {
   deal: Deal;
   stage: PipelineStage;
   onEdit: (deal: Deal) => void;
+        readOnly: boolean;
 }) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: deal.id,
+        disabled: readOnly,
   });
 
   return (
     <div
       ref={setNodeRef}
-      {...listeners}
-      {...attributes}
-      style={{ opacity: isDragging ? 0.3 : 1, touchAction: "none" }}
+      {...(readOnly ? {} : listeners)}
+    {...(readOnly ? {} : attributes)}
+      style={{
+         opacity: isDragging ? 0.3 : 1,
+         touchAction: readOnly ? undefined : "none",
+      }}
     >
       <DealCard deal={deal} stage={stage} onEdit={onEdit} />
     </div>
