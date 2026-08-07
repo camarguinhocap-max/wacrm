@@ -512,7 +512,31 @@ export async function sendMessageToConversation(
     console.error(
       '[flows] pause-on-agent-send threw:',
       err instanceof Error ? err.message : err
+    
     );
+  }
+
+  // Stop any waiting-for-reply follow-up sequence: an agent stepping in manually is the same human-is-here signal as the Flow pause above.
+  try {
+    const { data: waitingTag } = await supabaseAdmin()
+    .from('tags')
+    .select('id')
+    .eq('account_id', accountId)
+    .ilike('name', 'Aguardando resposta%')
+    .maybeSingle();
+    if (waitingTag?.id) {
+      const { error: untagErr } = await supabaseAdmin()
+      .from('contact_tags')
+      .delete()
+      .eq('contact_id', contact.id)
+      .eq('tag_id', waitingTag.id);
+      if (untagErr) {
+        console.error('[automations] clear-wait-tag-on-agent-send failed:', untagErr.message);
+
+      }
+    }
+  } catch (err) {
+    console.error('[automations] clear-wait-tag-on-agent-send threw:', err instanceof Error ? err.message : err);
   }
 
   return { messageId: messageRecord.id, whatsappMessageId: waMessageId };
