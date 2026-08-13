@@ -23,24 +23,43 @@ export interface MetaPhoneInfo {
   quality_rating?: string
 }
 
-interface MetaErrorResponse {
-  error?: { message?: string; code?: number; type?: string }
-}
-
-async function throwMetaError(response: Response, fallback: string): Promise<never> {
-  let message = fallback
-  try {
-    const data = (await response.json()) as MetaErrorResponse
-    if (data.error?.message) message = data.error.message
-  } catch {
-    // response body wasn't JSON — keep the fallback
-  }
-  throw new Error(message)
-}
-
 // ============================================================
 // Phone number / account
 // ============================================================
+interface MetaErrorResponse {
+    error?: {
+      message?: string
+          code?: number
+          type?: string
+          error_subcode?: number
+          error_user_title?: string
+          error_user_msg?: string
+          error_data?: { details?: string; blame_field_specs?: unknown }
+    }
+}
+
+async function throwMetaError(response: Response, fallback: string): Promise<never> {
+    let message = fallback
+    try {
+          const data = (await response.json()) as MetaErrorResponse
+          const err = data.error
+          if (err) {
+                  // Meta's top-level `message` is often a generic bucket name (e.g.
+                  // "Invalid parameter") — the actionable reason lives in one of
+                  // these more specific fields. Prefer the most specific one present.
+                  const specific =
+                            err.error_user_msg ||
+                            err.error_data?.details ||
+                            (err.error_user_title && err.message
+                                       ? `${err.error_user_title}: ${err.message}`
+                                       : undefined)
+                  message = specific || err.message || fallback
+          }
+    } catch {
+          // response body wasn't JSON — keep the fallback
+    }
+    throw new Error(message)
+}
 
 export interface VerifyPhoneNumberArgs {
   phoneNumberId: string
