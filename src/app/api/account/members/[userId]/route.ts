@@ -1,17 +1,20 @@
 // ============================================================
 // /api/account/members/[userId]
 //
-//   PATCH  — change a member's role.   Admin+.
-//   DELETE — remove a member.          Admin+.
+//   PATCH  -- change a member role, or enable/disable access.  Admin+.
+//   DELETE -- remove a member.                                  Admin+.
 //
-// Both delegate to SECURITY DEFINER RPCs from migration 018:
+// Role changes and DELETE delegate to SECURITY DEFINER RPCs from
+// migration 018:
 //   - set_member_role(p_user_id, p_new_role)
 //   - remove_account_member(p_user_id)
+// Enabling/disabling access delegates to the RPC from migration 039:
+//   - set_member_active(p_user_id, p_is_active)
 //
-// The RPCs do the *real* authorisation work — caller must be
-// admin+, target must be in caller's account, target can't be the
-// owner, can't be self. The TS layer here only forwards the call
-// and maps Postgres SQLSTATEs back to HTTP statuses.
+// The RPCs do the real authorisation work -- caller must be
+// admin+, target must be in the caller account, target cannot be
+// the owner, cannot be self. The TS layer here only forwards the
+// call and maps Postgres SQLSTATEs back to HTTP statuses.
 // ============================================================
 
 import { NextResponse } from "next/server";
@@ -26,7 +29,7 @@ import {
 } from "@/lib/rate-limit";
 
 // Map known SQLSTATEs from the RPCs (see migration 018) onto HTTP
-// statuses. The `error.code` field is the SQLSTATE; the `message`
+// statuses. The error.code field is the SQLSTATE; the message
 // is the human-readable RAISE message we put in the migration.
 function rpcErrorToResponse(err: PostgrestError): NextResponse {
   if (err.code === "42501") {
@@ -58,13 +61,28 @@ export async function PATCH(
     const { userId } = await params;
 
     const body = (await request.json().catch(() => null)) as
-      | { role?: unknown }
+      | { role?: unknown; is_active?: unknown }
       | null;
+
+    // Enable/disable access (migration 039) is a separate action
+    // from a role change -- handle it first so a toggle request
+    // never has to also carry a role field.
+    if (typeof body?.is_active === "boolean") {
+      const { error } = await ctx.supabase.rpc("set_member_active", {
+        p_user_id: userId,
+        p_is_active: body.is_active,
+      });
+
+      if (error) return rpcErrorToResponse(error);
+
+      return NextResponse.json({ ok: true });
+    }
+
     const role = body?.role;
 
     if (!isAccountRole(role)) {
       return NextResponse.json(
-        { error: "'role' must be one of owner, admin, agent, viewer" },
+        { error: "role must be one of owner, admin, agent, viewer" },
         { status: 400 },
       );
     }
