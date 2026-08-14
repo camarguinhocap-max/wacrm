@@ -44,7 +44,7 @@ interface Profile {
                       * affordances (hiding buttons, disabling drag), the DB is the real
                          * enforcement.
                             */
-    deals_view_only: boolean;
+    deals_view_only: boolean; is_active: boolean;
 }
 
 interface AccountSummary {
@@ -152,7 +152,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const { data, error } = await supabase
         .from("profiles")
         .select(
-          "id, full_name, email, avatar_url, role, beta_features, account_id, account_role, telegram_chat_id, deals_view_only",
+          "id, full_name, email, avatar_url, role, beta_features, account_id, account_role, telegram_chat_id, deals_view_only, is_active",
         )
         .eq("user_id", userId)
         .maybeSingle();
@@ -227,7 +227,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           account_id: data.account_id ?? null,
           account_role: accountRole,
           telegram_chat_id: data.telegram_chat_id ?? null,
-                    deals_view_only: data.deals_view_only ?? false,
+                    deals_view_only: data.deals_view_only ?? false, is_active: data.is_active ?? true,
         });
         setAccount(accountRow);
       } else {
