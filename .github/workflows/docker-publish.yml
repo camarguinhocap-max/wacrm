@@ -1,0 +1,56 @@
+name: Build and Push Docker Image
+
+# Builds the production Docker image on GitHub's runners (plenty of RAM)
+# instead of the 954MB-RAM VPS, where npm run build was repeatedly
+# getting OOM-killed. Pushes the image to GHCR, then pings EasyPanel's
+# deploy trigger so it pulls the new image and redeploys automatically.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+          # These are all NEXT_PUBLIC_* values, inlined into the client
+          # JS bundle at build time and visible to any browser anyway,
+          # so they are safe to keep here in plain text (not secrets).
+          build-args: |
+            NEXT_PUBLIC_SUPABASE_URL=https://dpuiwmwwovwgwnwpsgnw.supabase.co
+            NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRwdWl3bXd3b3Z3Z3dud3BzZ253Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODU1MzE1ODksImV4cCI6MjEwMTEwNzU4OX0.uE61wqyWAJUykBlwWKS-4p7jHJ6ziHIxqmIMOOS9fSM
+            NEXT_PUBLIC_SITE_URL=https://wacrm.sunnesul.com.br
+            NEXT_PUBLIC_APP_LOCALE=pt
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Trigger EasyPanel redeploy
+        run: curl -fsS -X POST "${{ secrets.EASYPANEL_DEPLOY_HOOK }}"
