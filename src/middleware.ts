@@ -42,6 +42,29 @@ export async function middleware(request: NextRequest) {
     return response
   }
 
+  // Protected pages, declared once and reused below by both the
+  // disabled-member check and the not-authenticated check.
+  const protectedPaths = ['/dashboard', '/inbox', '/contacts', '/pipelines', '/broadcasts', '/automations', '/settings']
+
+  // Disabled member (migration 039, `set_member_active`). Checked here
+  // — not just in getCurrentAccount() on the API side — so a disabled
+  // user is bounced to /account-disabled on their very next page
+  // navigation, not just on their next API call.
+  if (user && protectedPaths.some(path => request.nextUrl.pathname.startsWith(path)) &&
+      request.nextUrl.pathname !== '/account-disabled') {
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('is_active')
+      .eq('user_id', user.id)
+      .maybeSingle()
+    if (profile?.is_active === false) {
+      const url = request.nextUrl.clone()
+      url.pathname = '/account-disabled'
+      url.search = ''
+      return withRefreshedCookies(NextResponse.redirect(url))
+    }
+  }
+
   // Auth pages - redirect to dashboard if already logged in.
   // Exception: when an invite token is in the query string we
   // send the already-signed-in user to /join/<token> instead so
@@ -70,7 +93,6 @@ export async function middleware(request: NextRequest) {
   }
 
   // Protected pages - redirect to login if not authenticated
-  const protectedPaths = ['/dashboard', '/inbox', '/contacts', '/pipelines', '/broadcasts', '/automations', '/settings']
   if (!user && protectedPaths.some(path => request.nextUrl.pathname.startsWith(path))) {
     const url = request.nextUrl.clone()
     url.pathname = '/login'
