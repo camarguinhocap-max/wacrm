@@ -79,7 +79,7 @@ const nextConfig: NextConfig = {
    * runs `tsc --noEmit` separately — this only skips the redundant
    * check baked into the production build itself.
    */
-  typescript: {
+  webpack: (config, { dev }) => { /* Each deploy is a fresh throwaway Docker build with no .next/cache volume, so webpack's persistent cache buys nothing here but its disk serialization is memory-heavy and was silently OOM-killing the build around the ~20min mark on this VPS's constrained RAM. */ if (!dev) { config.cache = false; } return config; }, typescript: {
     ignoreBuildErrors: true,
   },
 
