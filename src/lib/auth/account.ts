@@ -116,7 +116,7 @@ export async function getCurrentAccount(): Promise<AccountContext> {
 
   const { data, error } = await supabase
     .from("profiles")
-    .select("account_id, account_role")
+    .select("account_id, account_role, is_active")
     .eq("user_id", user.id)
     .maybeSingle();
 
@@ -129,6 +129,15 @@ export async function getCurrentAccount(): Promise<AccountContext> {
     // signup trigger. The user is authenticated but the app has
     // no way to scope their queries — treat as forbidden.
     throw new ForbiddenError("Profile is not linked to an account");
+  }
+  // Disabled member (migration 039, `set_member_active`). They keep
+  // their login, but every API route that goes through here — which
+  // is virtually all of them — must refuse to act on their behalf.
+  // The page-level equivalent is the `is_active` check in
+  // middleware.ts, which bounces them to /account-disabled before
+  // they ever reach a page that would call this.
+  if (data.is_active === false) {
+    throw new ForbiddenError("Your access to this account has been disabled");
   }
   if (!isAccountRole(data.account_role)) {
     // The DB enum should make this impossible, but a future
