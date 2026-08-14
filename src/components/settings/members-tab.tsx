@@ -61,7 +61,7 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from '@/components/ui/select';
+} from '@/components/ui/select'; import { Switch } from '@/components/ui/switch';
 import { useTranslations } from 'next-intl';
 import { RequireRole } from '@/components/auth/require-role';
 import { useAuth } from '@/hooks/use-auth';
@@ -82,7 +82,7 @@ interface Member {
   email: string | null;
   avatar_url: string | null;
   role: AccountRole;
-  joined_at: string;
+  joined_at: string; is_active: boolean;
 }
 
 interface Invitation {
@@ -228,7 +228,7 @@ export function MembersTab() {
     }
   }
 
-  async function handleRemove() {
+  async function handleActiveToggle(member: Member, nextActive: boolean) { const previousActive = member.is_active; setPendingMemberAction(member.user_id); setMembers((prev) => prev.map((m) => (m.user_id === member.user_id ? { ...m, is_active: nextActive } : m))); try { const res = await fetch(`/api/account/members/${member.user_id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ is_active: nextActive }) }); if (!res.ok) { setMembers((prev) => prev.map((m) => (m.user_id === member.user_id ? { ...m, is_active: previousActive } : m))); const payload = await res.json().catch(() => ({})); toast.error(payload.error || 'Failed to update access'); return; } toast.success(nextActive ? t('accessEnabledToast', { name: member.full_name || t('unnamed') }) : t('accessDisabledToast', { name: member.full_name || t('unnamed') })); } catch (err) { setMembers((prev) => prev.map((m) => (m.user_id === member.user_id ? { ...m, is_active: previousActive } : m))); console.error('[MembersTab] active toggle error:', err); toast.error('Could not reach the server'); } finally { setPendingMemberAction(null); } } async function handleRemove() {
     if (!removingMember) return;
     setPendingMemberAction(removingMember.user_id);
     try {
@@ -385,7 +385,7 @@ export function MembersTab() {
                         <span className="truncate text-sm font-medium text-foreground">
                           {member.full_name || t('unnamed')}
                         </span>
-                        {isSelf && (
+                        {!member.is_active && (<Badge className="bg-red-500/10 text-red-300 border-red-500/40 text-[10px] uppercase tracking-wide">{t('inactiveBadge')}</Badge>)} {isSelf && (
                           <Badge className="bg-muted text-muted-foreground border-border text-[10px] uppercase tracking-wide">
                             {t('you')}
                           </Badge>
@@ -413,7 +413,7 @@ export function MembersTab() {
                     {/* Role display / editor. Inline Select is admin+
                         only AND not allowed on the owner row (owner
                         changes go through transfer, which lands later). */}
-                    {canManageMembers && !isOwnerRow && !isSelf ? (
+                    {canManageMembers && !isOwnerRow && !isSelf && (<Tooltip><TooltipTrigger render={<Switch checked={member.is_active} onCheckedChange={(v) => handleActiveToggle(member, !!v)} disabled={isBusy} aria-label={member.is_active ? t('activeAria') : t('inactiveAria')} />} /><TooltipContent>{member.is_active ? t('activeAria') : t('inactiveAria')}</TooltipContent></Tooltip>)} {canManageMembers && !isOwnerRow && !isSelf ? (
                       <Select
                         value={member.role}
                         onValueChange={(v) =>
