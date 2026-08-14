@@ -1242,7 +1242,7 @@
       "joined": "Joined {date}",
       "remove": "Remove",
       "removedToast": "Removed {name}",
-      "updatedToast": "Updated {name} to {role}",
+      "updatedToast": "Updated {name} to {role}", "accessEnabledToast": "{name}'s access re-enabled", "accessDisabledToast": "{name}'s access disabled", "activeAria": "Access enabled", "inactiveAria": "Access disabled", "inactiveBadge": "Inactive",
       "pendingInvitations": "Pending invitations",
       "inviteHint": "The plaintext invite URL is only shown once at creation for security — to re-share, revoke the invite below and create a new one.",
       "noPendingTitle": "No pending invitations.",
