@@ -1242,7 +1242,7 @@
       "joined": "{date} 참여",
       "remove": "제거",
       "removedToast": "{name}을(를) 제거했습니다",
-      "updatedToast": "{name}을(를) {role}(으)로 변경했습니다",
+      "updatedToast": "{name}을(를) {role}(으)로 변경했습니다", "accessEnabledToast": "{name}의 접근 권한을 다시 활성화했습니다", "accessDisabledToast": "{name}의 접근 권한을 비활성화했습니다", "activeAria": "접근 활성화됨", "inactiveAria": "접근 비활성화됨", "inactiveBadge": "비활성",
       "pendingInvitations": "대기 중인 초대",
       "inviteHint": "보안을 위해 초대 URL 원문은 생성 시 한 번만 표시됩니다 — 다시 공유하려면 아래에서 초대를 취소하고 새로 만드세요.",
       "noPendingTitle": "대기 중인 초대가 없습니다.",
