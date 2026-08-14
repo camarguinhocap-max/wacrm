@@ -1242,7 +1242,7 @@
       "joined": "Entrou em {date}",
       "remove": "Remover",
       "removedToast": "{name} removido",
-      "updatedToast": "{name} atualizado para {role}",
+      "updatedToast": "{name} atualizado para {role}", "accessEnabledToast": "Acesso de {name} reativado", "accessDisabledToast": "Acesso de {name} desativado", "activeAria": "Acesso ativo", "inactiveAria": "Acesso desativado", "inactiveBadge": "Inativo",
       "pendingInvitations": "Convites pendentes",
       "inviteHint": "O link de convite em texto puro é mostrado apenas uma vez, na criação, por segurança — para reenviar, revogue o convite abaixo e crie um novo.",
       "noPendingTitle": "Nenhum convite pendente.",
