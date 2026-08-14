@@ -1033,10 +1033,10 @@ async function processMessage(
     if (assignedAgentId) {
       const { data: agentProfile } = await supabaseAdmin()
         .from('profiles')
-        .select('telegram_chat_id')
+        .select('telegram_chat_id, is_active')
         .eq('user_id', assignedAgentId)
         .maybeSingle()
-      if (agentProfile?.telegram_chat_id) {
+      if (agentProfile?.telegram_chat_id && agentProfile.is_active !== false) {
         const siteUrl =
           process.env.NEXT_PUBLIC_SITE_URL || 'https://wacrm.sunnesul.com.br'
         const preview = inboundText.trim() || `[${message.type}]`
