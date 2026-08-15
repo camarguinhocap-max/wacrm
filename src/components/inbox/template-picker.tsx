@@ -251,7 +251,7 @@ export function TemplatePicker({
         ) : (
           <div className="space-y-3">
             <div className="rounded-md border border-border bg-background/50 p-3">
-              <p className="mb-1 text-xs text-muted-foreground">
+              <p className="mb-1 text-xs text-muted-foreground">{t("preview")}</p>
               {selected.header_type === "image" && selected.header_media_url && (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img
