@@ -1,4 +1,4 @@
-// ============================================================
+f// ============================================================
 // Outbound message send — the core that both the dashboard's
 // `/api/whatsapp/send` route and the public `/api/v1/messages`
 // endpoint call.
@@ -429,7 +429,7 @@ export async function sendMessageToConversation(
     const message =
       err instanceof Error ? err.message : 'Unknown Meta API error';
     console.error('[send-message] Meta send failed for all variants:', message);
-    throw new SendMessageError('meta_error', `Meta API error: ${message}`, 502);
+    throw new SendMessageError('meta_error', `Meta API error: ${message}`, 422);
   }
 
   if (workingPhone !== sanitizedPhone) {
