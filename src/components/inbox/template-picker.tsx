@@ -251,7 +251,32 @@ export function TemplatePicker({
         ) : (
           <div className="space-y-3">
             <div className="rounded-md border border-border bg-background/50 p-3">
-              <p className="mb-1 text-xs text-muted-foreground">{t("preview")}</p>
+              <p className="mb-1 text-xs text-muted-foreground">
+              {selected.header_type === "image" && selected.header_media_url && (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={selected.header_media_url}
+                  alt=""
+                  className="mb-2 max-h-40 w-full rounded object-cover"
+                />
+              )}
+              {selected.header_type === "video" && selected.header_media_url && (
+                <video
+                  src={selected.header_media_url}
+                  controls
+                  className="mb-2 max-h-40 w-full rounded"
+                />
+              )}
+              {selected.header_type === "document" && selected.header_media_url && (
+                <a
+                  href={selected.header_media_url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="mb-2 block truncate text-xs text-primary underline"
+                >
+                  {selected.header_media_url.split("/").pop()}
+                </a>
+              )}
               <p className="whitespace-pre-wrap text-sm text-popover-foreground">
                 {renderBodyPreview(selected.body_text, params)}
               </p>
