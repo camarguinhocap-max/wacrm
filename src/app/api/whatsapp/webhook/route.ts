@@ -438,6 +438,16 @@ async function handleStatusUpdate(status: {
     if (status.status === 'sent' && !('sent_at' in update)) update.sent_at = tsIso
     if (status.status === 'delivered') update.delivered_at = tsIso
     if (status.status === 'read') update.read_at = tsIso
+    // Meta's async delivery pipeline reports why a `failed` status
+    // happened via `status.errors` — persist it so failures are
+    // diagnosable from the CRM instead of showing as a bare "Falhou"
+    // with no reason (only error code 131026 gets auto-tagged below;
+    // everything else silently looked identical before this).
+    if (status.status === 'failed' && status.errors?.length) {
+      update.error_message = status.errors
+        .map((e) => `[${e.code}] ${e.title ?? ''}${e.message ? ` - ${e.message}` : ''}`.trim())
+        .join('; ')
+    }
 
     const { error: recUpdateErr } = await supabaseAdmin()
       .from('broadcast_recipients')
