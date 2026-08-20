@@ -4,7 +4,7 @@ Registro de tudo que foi configurado e feito no CRM de WhatsApp (wacrm) para a S
 
 Última atualização: 20/08/2026
 
-> ⚠️ **Nota sobre este arquivo (20/08/2026):** este manual só era editado localmente e nunca tinha sido commitado no Git desde 03/08/2026 — um `git reset --hard` para sincronizar um fix de código com o GitHub apagou sem querer todo o conteúdo adicionado depois dessa data (o bug do Telegram Chat ID da seção 11, aliás, **já foi corrigido** — ver commit `d7f73bb`, banner removido). Recuperado o que deu (seção 5.1 e a pendência de CSV na seção 12). **Conteúdo que ainda falta reconstruir:** seção 11.1 (ativar/desativar acesso de membro), seção 14 (bug do 502 no envio de template) e seção 14.1 (campanha de reconexão "Cliente OP"). A partir de agora, sempre que este arquivo for editado, commitar também no Git para não perder de novo.
+> ⚠️ **Nota sobre este arquivo (20/08/2026):** este manual só era editado localmente e nunca tinha sido commitado no Git desde 03/08/2026 — um `git reset --hard` para sincronizar um fix de código com o GitHub apagou sem querer todo o conteúdo adicionado depois dessa data. Reconstruído a partir de commits reais e dos dados do Supabase (seção 5.1, 11.1, 12, 14 e 14.1). O bug do Telegram Chat ID (seção 11) já estava corrigido há dias, banner desatualizado removido. **A partir de agora, este arquivo é commitado no Git junto com o código para não perder de novo.**
 
 ---
 
@@ -339,9 +339,9 @@ No campo "Business context & instructions", ser explícito sobre o que a IA **n�
 
 ---
 
-## 11. Problema em aberto — campo "Telegram Chat ID" aparece vazio em Configurações → Seu perfil
+## 11. Bug corrigido — campo "Telegram Chat ID" aparecia vazio em Configurações → Seu perfil
 
-**Prioridade atual do projeto.** Outras atualizações/deploys estão em standby até isso ser resolvido (decisão do usuário em 03/08/2026).
+**Resolvido** (commit `d7f73bb`: "fix: profile fetch estava sem telegram_chat_id no select, campo sempre aparecia vazio"). O diagnóstico abaixo foi mantido como registro histórico do problema.
 
 ### Sintoma
 Em **Configurações → Seu perfil**, o campo "Telegram Chat ID" aparece **vazio**, mesmo o valor estando salvo corretamente no banco (`profiles.telegram_chat_id = "7340357750"` para camarguinhocap@gmail.com, confirmado via SQL direto no Supabase).
@@ -378,10 +378,22 @@ para ver se o texto `telegram_chat_id` está mesmo presente no JS publicado.
 
 ---
 
-## 12. Pendências gerais
+## 11.1 Ativar/desativar acesso de um membro da conta (14/08/2026)
 
-**🔴 Prioridade máxima (em standby até resolver):**
-- [ ] Descobrir por que o campo "Telegram Chat ID" aparece vazio em Configurações → Seu perfil, mesmo salvo no banco — ver diagnóstico completo e próximos passos na seção 11. Outras tarefas abaixo ficam pausadas até isso ser resolvido.
+Local no wacrm: **Configurações → Membros da conta** (aba Members), botão/switch de status ao lado de cada membro.
+
+Feature nova: permite bloquear o acesso de um atendente/membro **sem excluir a conta dele** (mantém histórico, mensagens, negócios associados — só impede login/uso enquanto desativado). Implementação (commits 14/08/2026):
+- Coluna `is_active` passou a ser checada em `getCurrentAccount()` e na validação de sessão (`864930f`) — um membro desativado é barrado mesmo com sessão válida.
+- `is_active` incluído no select do perfil e no endpoint de listagem de membros (`8fb6355`).
+- Switch de ativar/desativar adicionado na tela de Membros (`25b770e`), campo `is_active` adicionado ao tipo `Profile` do `useAuth` (`b1cc770`), textos em pt/en/ko (`29ffaab`, `96816de`, `88d8a21`).
+
+**Bug encontrado e corrigido no mesmo dia:** o switch clicava e parecia funcionar, mas `PATCH /api/account/members/[userId]` **nunca tratava o campo `is_active`** no corpo da requisição — ou seja, o toggle não fazia nada de verdade no banco até esse fix (`6d7fec8`).
+
+**Ajuste relacionado:** membro desativado não deve mais gerar notificação no Telegram de mensagens novas (evita alertar quem não pode mais acessar o CRM).
+
+---
+
+## 12. Pendências gerais
 
 **Broadcast:**
 - [x] ~~Commit + push + deploy da tag automática "Sem WhatsApp"~~ — já estava sincronizado com `origin/main` (confirmado 04/08/2026 via `git commit`/`git push`, "nothing to commit"). Falta só confirmar que o deploy em produção está na versão certa. Ver seção 8.2.
@@ -418,5 +430,45 @@ para ver se o texto `telegram_chat_id` está mesmo presente no JS publicado.
 | Importar contatos | Contatos → Importar |
 | Mandar primeira mensagem para um contato | Dentro do contato, na tela de conversa (Inbox) |
 | Fluxos de triagem/menu | Flows (BETA) |
-| Telegram Chat ID (aviso de mensagem nova) | Configurações → Seu perfil (bug em aberto, seção 11) |
+| Telegram Chat ID (aviso de mensagem nova) | Configurações → Seu perfil (corrigido, ver seção 11) |
 | Assistente de IA (rascunho/auto-resposta) | AI Agents (menu lateral) |
+| Ativar/desativar acesso de um membro | Configurações → Membros da conta (ver seção 11.1) |
+
+---
+
+## 14. Bug corrigido: "Failed to send template: HTTP 502" + templates sem imagem no preview (15/08/2026)
+
+Dois bugs distintos, corrigidos no mesmo dia.
+
+### Bug 1 — erros da Meta apareciam como "502" genérico
+Causa: o **proxy reverso do EasyPanel descarta o corpo de respostas HTTP 502**, escondendo o motivo real do erro que a Meta retornava (ex.: "template does not exist in pt_BR"). A aplicação repassava o código de status da Meta (que às vezes é 502) direto pro navegador, e o proxy comia a mensagem no caminho — sobrava só "Failed to send template: HTTP 502" sem detalhe nenhum. Corrigido trocando o código de resposta para **422** (não passa pelo mesmo filtro do proxy) em três pontos, um por vez conforme foram descobertos:
+- `templates/submit` (envio de template pra aprovação) — commit `0d965f6`, 13/08/2026
+- `templates/[id]` (editar/apagar template) — commit `c7e4d7f`, 14/08/2026
+- Envio de mensagem/template pro cliente — commit `2127b54`, 15/08/2026
+
+### Bug 2 — templates com imagem apareciam "sem imagem" ao selecionar
+O modal de enviar template (tanto no Inbox quanto na ficha do contato) só renderizava o texto do corpo/rodapé no preview — nunca mostrava a imagem/vídeo/documento do cabeçalho, mesmo quando o template tinha `header_media_url` configurado. Por isso, ao escolher um template com imagem pra enviar, parecia que a imagem tinha sumido (mas o envio em si funcionava normalmente). Corrigido adicionando a renderização de mídia no preview do modal — commit `6077046`, 15/08/2026.
+
+---
+
+## 14.1 Contatos "Cliente OP" (479 contatos antigos) e campanha de reconexão
+
+Em 01/08/2026 foi importado um lote de **479 contatos** com nome no padrão "Cliente OP `<número>`" (ex.: "Cliente OP 54") — pessoas que já tinham conversado com o número de WhatsApp da empresa antes dele virar conta oficial (Business API), mas nunca tiveram o contato salvo com nome de verdade. Numeração tem duas lacunas conhecidas (OP 01, OP 02 e OP 43 não existem — provavelmente removidos como duplicados no import original).
+
+**Estratégia adotada:** reconectar em lotes pequenos (10 contatos por vez) usando o template de Marketing `oferta_desconto_luz`, checando a qualidade da conta no WhatsApp Manager da Meta (classificação de qualidade do número, status do template, limite de conversas iniciadas) **antes de cada lote**, e analisando entrega/leitura/resposta/falha do lote anterior antes de liberar o próximo. Como a tela de Transmissão não tem upload de CSV funcional (bug documentado na seção 12), cada lote é feito criando uma tag temporária ("Teste OP loteN") via SQL direto no Supabase e usando "Filtrar por Tags" no assistente de Transmissão.
+
+**Progresso até 20/08/2026** (73 de 479 contatos, OP 03 a OP 73):
+
+| Lote | Contatos | Data | Entregue+ | Lida | Respondida | Falhou |
+|---|---|---|---|---|---|---|
+| 1 | OP 03-12 | 17/08 | 8 | 4 | 1 | 1 |
+| 2 | OP 13-22 + pessoal | 17/08 | 11 | 11 | 2 | 0 |
+| 3 | OP 23-32 | 18/08 | 10 | 7 | 2 | 0 |
+| 4 | OP 33-42 | 18/08 | 9 | 8 | 1 | 1 |
+| 5 | OP 44-53 | 19/08 | 10 | 6 | 2 | 0 |
+| 6 | OP 54-63 | 19/08 | 10 | 9 | 0 | 0 |
+| 7 | OP 64-73 | 20/08 | 5 | 1 | 0 | 4 |
+
+O lote 7 teve 4 falhas, mas só o OP 73 tem a tag automática "Sem WhatsApp" (código de erro 131026 da Meta, ou seja, esse contato realmente não tem WhatsApp nesse número). Os outros 3 (OP 69, 70, 72) falharam por outro motivo que não dava pra descobrir por causa do bug corrigido na seção 5.1 (motivo do erro não era salvo) — depois do deploy desse fix, falhas futuras já vêm com o motivo real registrado.
+
+**Restam 406 contatos** (a maioria da faixa OP 74 em diante) para continuar a campanha em lotes futuros.
