@@ -2,9 +2,9 @@
 
 Registro de tudo que foi configurado e feito no CRM de WhatsApp (wacrm) para a Sunne Sul. Use como referência caso precise mexer em algo de novo ou repassar para outra pessoa.
 
-Última atualização: 03/08/2026
+Última atualização: 20/08/2026
 
-> ⚠️ **Prioridade atual (03/08/2026):** há um bug em aberto (campo "Telegram Chat ID" some em Configurações → Seu perfil) que está sendo investigado. Por decisão do usuário, **outras atualizações/deploys ficam em standby até esse problema ser resolvido**. Ver seção 11 para o diagnóstico completo e o que falta fazer.
+> ⚠️ **Nota sobre este arquivo (20/08/2026):** este manual só era editado localmente e nunca tinha sido commitado no Git desde 03/08/2026 — um `git reset --hard` para sincronizar um fix de código com o GitHub apagou sem querer todo o conteúdo adicionado depois dessa data (o bug do Telegram Chat ID da seção 11, aliás, **já foi corrigido** — ver commit `d7f73bb`, banner removido). Recuperado o que deu (seção 5.1 e a pendência de CSV na seção 12). **Conteúdo que ainda falta reconstruir:** seção 11.1 (ativar/desativar acesso de membro), seção 14 (bug do 502 no envio de template) e seção 14.1 (campanha de reconexão "Cliente OP"). A partir de agora, sempre que este arquivo for editado, commitar também no Git para não perder de novo.
 
 ---
 
@@ -90,6 +90,38 @@ Ao tentar ativar o Welcome Message, dava esse erro. Causa: o passo de "adicionar
 
 ### Status atual
 O **Welcome Message foi desativado** depois que o Flow de triagem (ver seção 7) foi criado, porque os dois disparavam na primeira mensagem do contato e mandariam mensagem duplicada. As outras 3 automações (Out of Office, Lead Qualifier, Follow-up Reminder) estão ativas.
+
+---
+
+## 5.1 Follow-ups automáticos (regras completas)
+
+Além das 4 automações padrão acima, existem hoje **4 automações de follow-up/reengajamento** na conta. Local: **Configurações → Automações**.
+
+**1. Follow-up Triagem (5min/1h/6h/23h)** — criada 07/08/2026, junto com a tradução do funil de vendas (seção 7).
+Gatilho: **primeira mensagem do contato**. Ao disparar: marca a tag "Aguardando resposta - Triagem" e manda 4 variações de lembrete de vendas escalonadas — **5min → 1h → 6h → 23h** depois da etapa anterior — checando antes de cada envio se a tag ainda está presente (ou seja, se o cliente ainda não respondeu). No fim do ciclo remove a tag.
+Status: **inativa desde 10/08/2026** (dois dias depois de criada, e não roda desde então). Não há registro do motivo da desativação — confirmar se foi proposital ou se deveria ser reativada.
+
+**2. Follow-up Triagem - Parar se responder** — criada 07/08/2026, ativa.
+Gatilho: **nova mensagem do contato**. Rede de segurança: se o cliente responder com texto livre (sem clicar em botão) enquanto está com a tag "Aguardando resposta - Triagem", remove a tag na hora e corta os lembretes agendados pela automação acima.
+
+Existe também, direto no código (não aparece como automação na tela), uma segunda camada da mesma proteção: sempre que um atendente manda mensagem manual pelo Inbox (`src/lib/whatsapp/send-message.ts`), o sistema já remove a tag "Aguardando resposta%" do contato — ou seja, um atendente assumir a conversa também para os lembretes da triagem, não só uma resposta do próprio cliente.
+
+**3. Lembrete de Follow-up** — a mais antiga (criada 01/08/2026), ativa. É a automação por trás da mensagem *"Oi! So passando pra saber se ficou alguma duvida sobre a economia na conta de luz. Ainda posso te ajudar?"*.
+Gatilho: **nova mensagem do contato**. Regra (**trava adicionada em 12/08/2026**): ao disparar, marca a tag "Aguardando resposta - Follow-up 24h"; espera **1 dia**; checa se a tag ainda está presente e só manda o lembrete se estiver; remove a tag no final. Como essa tag começa com "Aguardando resposta", ela já é coberta pela mesma trava de código que a triagem usa: assim que **qualquer atendente manda uma mensagem manual pro contato** (`src/lib/whatsapp/send-message.ts`), a tag é removida na hora e o lembrete de 24h não sai mais — a não ser que o próprio atendente/automação inicie um novo ciclo depois disso. Não precisou de deploy, é só configuração de automação no banco.
+Antes dessa trava, o lembrete disparava sempre depois de 1 dia, **mesmo que um atendente já tivesse resolvido a conversa manualmente** — 3 execuções que já estavam agendadas nesse formato antigo foram canceladas ao aplicar a trava (não vão mais sair).
+
+**4. Reengajamento - Cliente sumiu (5 dias)** — ativa. Gatilho: **primeira mensagem do contato**. Espera 5 dias e, se o contato nunca recebeu a tag "Segmento Definido" (ou seja, nunca escolheu uma opção no menu de triagem), reenvia o template de Marketing `oferta_desconto_luz`.
+
+### Bug corrigido 19/08/2026: contato que clicou "Não tenho interesse" ainda podia receber follow-up
+
+Encontrado ao investigar um pedido do usuário: contatos que clicam no botão **"Não tenho interesse"** do template `oferta_desconto_luz` recebem corretamente a tag **"Não contatar"** e uma mensagem de confirmação (automação "Marketing - Nao tenho interesse", isso já funcionava certo). Porém nenhuma das automações de follow-up checava essa tag antes de mandar mensagem de novo. Dois problemas reais encontrados e corrigidos direto no banco (sem precisar de deploy — automações são configuração, não código):
+
+1. **Config duplicada/conflitante**: a automação "Marketing - Falar em 1 mes" também estava configurada para disparar no clique de "Não tenho interesse" (reply_ids incluía os dois botões por engano). Ou seja, ao clicar em "não tenho interesse", o contato recebia a tag de opt-out **e também** a mensagem "Combinado! Te chamamos daqui a 1 mês", uma contradição. Corrigido: essa automação agora só dispara no botão "Falar em 1 mês".
+2. **Follow-ups não respeitavam o opt-out**: nem "Lembrete de Follow-up" (24h) nem "Reengajamento - Cliente sumiu (5 dias)" verificavam a tag "Não contatar" antes de enviar. Adicionada uma checagem (`condition` de presença da tag "Não contatar") no início do envio das duas — se o contato tiver essa tag, a automação para e não manda nada.
+
+### Bug corrigido 20/08/2026: falha no envio de broadcast não guardava o motivo
+
+Encontrado ao investigar por que alguns contatos do lote de reconexão "Cliente OP" apareciam como "Falhou" mesmo tendo WhatsApp ativo. Causa: o webhook (`src/app/api/whatsapp/webhook/route.ts`) recebe o motivo do erro do Meta (`status.errors`) em toda falha de entrega, mas só usava essa informação para um caso específico (código 131026, tag automática "Sem WhatsApp") — o motivo em si **nunca era salvo** na coluna `broadcast_recipients.error_message`, então qualquer outra causa de falha aparecia como "Falhou" genérico, sem explicação, indistinguível de "não tem WhatsApp". Corrigido: agora o motivo completo (`[código] título - mensagem`) é sempre salvo em `error_message`. Commit `9d73515`/`ed36123`, precisa de deploy (push + GitHub Actions + EasyPanel) para valer em produção.
 
 ---
 
@@ -372,6 +404,7 @@ para ver se o texto `telegram_chat_id` está mesmo presente no JS publicado.
 - [ ] Decidir sobre o Catálogo de produtos (desvincular de outro lugar ou criar novo)
 - [ ] Preencher o campo "Site" no Perfil da empresa no WhatsApp Manager
 - [ ] Duas WABAs antigas/órfãs no Business Manager sem uso (`1688746219127408`, `1748496489727941`) — só mexer se for necessário limpar
+- [ ] **Bug encontrado 17/08/2026:** no assistente de Transmissão (Transmissões → Nova Transmissão → Público), a opção "Enviar CSV" existe na tela mas não tem nenhum campo real de upload — `src/components/broadcasts/step2-select-audience.tsx` guarda `audience.csvContacts` mas nunca renderiza o input de arquivo, então o botão "Avançar" nunca libera nesse modo. Workaround usado: marcar os contatos com uma tag e usar "Filtrar por Tags" no lugar. Precisa implementar o upload de verdade ou remover a opção quebrada da tela.
 
 ---
 
