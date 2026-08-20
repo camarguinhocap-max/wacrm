@@ -5,7 +5,7 @@ import { getMediaUrl, downloadMedia } from '@/lib/whatsapp/meta-api'
 import { normalizePhone } from '@/lib/whatsapp/phone-utils'
 import { findExistingContact, isUniqueViolation } from '@/lib/contacts/dedupe'
 import { verifyMetaWebhookSignature } from '@/lib/whatsapp/webhook-signature'
-import { runAutomationsForTrigger } from '@/lib/automations/engine'
+import { runAutomationsForTrigger, assignRoundRobinIfUnassigned } from '@/lib/automations/engine'
 import { dispatchInboundToFlows } from '@/lib/flows/engine'
 import { dispatchInboundToAiReply } from '@/lib/ai/auto-reply'
 import { dispatchWebhookEvent } from '@/lib/webhooks/deliver'
@@ -1023,6 +1023,15 @@ async function processMessage(
       },
     }).catch((err) => console.error('[automations] dispatch failed:', err))
   }
+
+  // Safety net: a contact whose first-ever inbound message is a tap on a
+  // broadcast/template button (see `isFirstInboundMessage` above) never
+  // fires `first_inbound_message`, so the "Distribuir atendimento" round-
+  // robin automation never runs for them and the conversation is left with
+  // no agent. Catch that here — no-ops if already assigned.
+  await assignRoundRobinIfUnassigned(accountId, contactRecord.id).catch((err) =>
+    console.error('[automations] round-robin fallback failed:', err)
+  )
 
   // Telegram push notification for whichever agent is now assigned to
   // this conversation — re-fetched (not the `conversation` var captured

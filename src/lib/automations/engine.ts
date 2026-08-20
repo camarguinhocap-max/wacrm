@@ -379,6 +379,82 @@ async function executeStepsFrom(args: ExecuteArgs): Promise<void> {
   }
 }
 
+/**
+ * Real round-robin across every ACTIVE member of the account, ordered by
+ * `profiles.created_at` for a stable, deterministic sequence (so "agent 1" /
+ * "agent 2" always means the same two people run in the same order).
+ * Deactivated members (`is_active = false`) are excluded from the rotation
+ * entirely — they must never receive a new assignment. No dedicated counter
+ * table: we derive "whose turn is next" from whichever agent most recently
+ * received an assignment in this account, then advance one slot. First-ever
+ * assignment (no prior `assigned_agent_id` anywhere, or the last-assigned
+ * agent is no longer active) starts at the first active agent in the list.
+ */
+async function resolveRoundRobinAgent(
+  db: ReturnType<typeof supabaseAdmin>,
+  accountId: string,
+): Promise<string | null> {
+  const { data: profiles } = await db
+    .from('profiles')
+    .select('user_id')
+    .eq('account_id', accountId)
+    .eq('is_active', true)
+    .order('created_at', { ascending: true })
+  const agentIds = (profiles ?? [])
+    .map((p) => p.user_id)
+    .filter((id): id is string => Boolean(id))
+
+  if (agentIds.length === 0) return null
+  if (agentIds.length === 1) return agentIds[0]
+
+  const { data: lastAssigned } = await db
+    .from('conversations')
+    .select('assigned_agent_id')
+    .eq('account_id', accountId)
+    .not('assigned_agent_id', 'is', null)
+    .order('updated_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+
+  // indexOf returns -1 both when there's no prior assignment AND when the
+  // last-assigned agent has since been deactivated (no longer in agentIds)
+  // — either way, correctly restart the rotation at the first active agent.
+  const lastIndex = lastAssigned?.assigned_agent_id
+    ? agentIds.indexOf(lastAssigned.assigned_agent_id)
+    : -1
+  return agentIds[(lastIndex + 1) % agentIds.length]
+}
+
+/**
+ * Safety net for conversations that never got assigned an agent because
+ * their first-ever inbound message was a tap on a broadcast/template button
+ * (see the `isFirstInboundMessage` exclusion in the webhook route) — those
+ * never fire `first_inbound_message`, so the "Distribuir atendimento"
+ * automation's `assign_conversation` step never runs for them. Call this
+ * once after automation dispatch on every inbound message; it only writes
+ * when the conversation is still unassigned, so it's a no-op the rest of
+ * the time and never fights with a manual reassignment.
+ */
+export async function assignRoundRobinIfUnassigned(
+  accountId: string,
+  contactId: string,
+): Promise<string | null> {
+  const db = supabaseAdmin()
+  const { data: conv } = await db
+    .from('conversations')
+    .select('id, assigned_agent_id')
+    .eq('account_id', accountId)
+    .eq('contact_id', contactId)
+    .maybeSingle()
+  if (!conv || conv.assigned_agent_id) return null
+
+  const agentId = await resolveRoundRobinAgent(db, accountId)
+  if (!agentId) return null
+
+  await db.from('conversations').update({ assigned_agent_id: agentId }).eq('id', conv.id)
+  return agentId
+}
+
 async function runStep(step: AutomationStep, args: ExecuteArgs): Promise<string> {
   const db = supabaseAdmin()
 
@@ -509,40 +585,7 @@ async function runStep(step: AutomationStep, args: ExecuteArgs): Promise<string>
       if (!args.contactId) throw new Error('assign_conversation needs a contact')
       let agentId = cfg.agent_id
       if (cfg.mode === 'round_robin') {
-        // Real round-robin across every member of the account, ordered by
-        // `profiles.created_at` for a stable, deterministic sequence (so
-        // "agent 1" / "agent 2" always means the same two people run in
-        // the same order). No dedicated counter table: we derive "whose
-        // turn is next" from whichever agent most recently received an
-        // assignment in this account, then advance one slot. First-ever
-        // assignment (no prior `assigned_agent_id` anywhere) starts at
-        // the first agent in the list.
-        const { data: profiles } = await db
-          .from('profiles')
-          .select('user_id')
-          .eq('account_id', args.automation.account_id)
-          .order('created_at', { ascending: true })
-        const agentIds = (profiles ?? [])
-          .map((p) => p.user_id)
-          .filter((id): id is string => Boolean(id))
-
-        if (agentIds.length <= 1) {
-          agentId = agentIds[0]
-        } else {
-          const { data: lastAssigned } = await db
-            .from('conversations')
-            .select('assigned_agent_id')
-            .eq('account_id', args.automation.account_id)
-            .not('assigned_agent_id', 'is', null)
-            .order('updated_at', { ascending: false })
-            .limit(1)
-            .maybeSingle()
-
-          const lastIndex = lastAssigned?.assigned_agent_id
-            ? agentIds.indexOf(lastAssigned.assigned_agent_id)
-            : -1
-          agentId = agentIds[(lastIndex + 1) % agentIds.length]
-        }
+        agentId = (await resolveRoundRobinAgent(db, args.automation.account_id)) ?? undefined
       }
       if (!agentId) return 'no agent resolved'
       await db
