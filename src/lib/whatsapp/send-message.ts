@@ -517,19 +517,23 @@ export async function sendMessageToConversation(
   }
 
   // Stop any waiting-for-reply follow-up sequence: an agent stepping in manually is the same human-is-here signal as the Flow pause above.
+  // NOTE: there is more than one "Aguardando resposta*" tag (Triagem,
+  // Follow-up 24h, ...), so this must clear ALL of them — `.maybeSingle()`
+  // used to throw on >1 match and silently no-op the whole block, which
+  // is why follow-ups kept firing after an agent had already replied.
   try {
-    const { data: waitingTag } = await supabaseAdmin()
+    const { data: waitingTags } = await supabaseAdmin()
     .from('tags')
     .select('id')
     .eq('account_id', accountId)
-    .ilike('name', 'Aguardando resposta%')
-    .maybeSingle();
-    if (waitingTag?.id) {
+    .ilike('name', 'Aguardando resposta%');
+    const waitingTagIds = (waitingTags ?? []).map((t) => t.id);
+    if (waitingTagIds.length > 0) {
       const { error: untagErr } = await supabaseAdmin()
       .from('contact_tags')
       .delete()
       .eq('contact_id', contact.id)
-      .eq('tag_id', waitingTag.id);
+      .in('tag_id', waitingTagIds);
       if (untagErr) {
         console.error('[automations] clear-wait-tag-on-agent-send failed:', untagErr.message);
 
