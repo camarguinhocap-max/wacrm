@@ -2,7 +2,7 @@
 
 Registro de tudo que foi configurado e feito no CRM de WhatsApp (wacrm) para a Sunne Sul. Use como referência caso precise mexer em algo de novo ou repassar para outra pessoa.
 
-Última atualização: 20/08/2026
+Última atualização: 21/08/2026
 
 > ⚠️ **Nota sobre este arquivo (20/08/2026):** este manual só era editado localmente e nunca tinha sido commitado no Git desde 03/08/2026 — um `git reset --hard` para sincronizar um fix de código com o GitHub apagou sem querer todo o conteúdo adicionado depois dessa data. Reconstruído a partir de commits reais e dos dados do Supabase (seção 5.1, 11.1, 12, 14 e 14.1). O bug do Telegram Chat ID (seção 11) já estava corrigido há dias, banner desatualizado removido. **A partir de agora, este arquivo é commitado no Git junto com o código para não perder de novo.**
 
@@ -122,6 +122,19 @@ Encontrado ao investigar um pedido do usuário: contatos que clicam no botão **
 ### Bug corrigido 20/08/2026: falha no envio de broadcast não guardava o motivo
 
 Encontrado ao investigar por que alguns contatos do lote de reconexão "Cliente OP" apareciam como "Falhou" mesmo tendo WhatsApp ativo. Causa: o webhook (`src/app/api/whatsapp/webhook/route.ts`) recebe o motivo do erro do Meta (`status.errors`) em toda falha de entrega, mas só usava essa informação para um caso específico (código 131026, tag automática "Sem WhatsApp") — o motivo em si **nunca era salvo** na coluna `broadcast_recipients.error_message`, então qualquer outra causa de falha aparecia como "Falhou" genérico, sem explicação, indistinguível de "não tem WhatsApp". Corrigido: agora o motivo completo (`[código] título - mensagem`) é sempre salvo em `error_message`. Commit `9d73515`/`ed36123`, precisa de deploy (push + GitHub Actions + EasyPanel) para valer em produção.
+
+### Bug corrigido 21/08/2026: cliente recebia o lembrete de follow-up duplicado, mesmo já tendo respondido
+
+**Correção/atualização importante em cima do que está escrito no item 3 e na nota do item 2 acima**: a alegação de que "assim que qualquer atendente manda uma mensagem manual pro contato, a tag é removida na hora" **não estava mais 100% verdadeira** desde que a tag "Aguardando resposta - Follow-up 24h" foi criada (12/08/2026) — a partir daí passaram a existir **duas** tags começando com "Aguardando resposta" ("Triagem" e "Follow-up 24h"), e o código antigo buscava essa tag com `.maybeSingle()`, que **lança erro quando encontra mais de uma linha**. O erro era capturado silenciosamente (`try/catch`) e o bloco inteiro virava no-op — ou seja, desde 12/08/2026, um atendente responder manualmente **não** cancelava o lembrete automático de 24h, ao contrário do que o manual registrava.
+
+Caso real que expôs o bug: cliente Carlos Eduardo (21 974688989) mandou o comprovante e e-mail, o atendente Josmair respondeu manualmente às 19/08 16:05 avisando que a Light ainda não tem parceria. Mesmo assim, o lembrete automático saiu do mesmo jeito às 20/08 15:26 ("Oi! So passando pra saber se ficou alguma duvida..."). O cliente respondeu às 20/08 15:40:57 ("Me ajudar como, não tem parceria com a light") — só que essa resposta, por ser uma **nova mensagem do contato**, disparou a automação "Lembrete de Follow-up" de novo do zero (ela reage a qualquer mensagem nova, sem checar se já tinha acabado de mandar um lembrete há pouco), reagendando outro envio idêntico para 24h depois. Esse segundo envio saiu às 21/08 15:42:02 e falhou (fora da janela de 24h de atendimento gratuito do WhatsApp, já que a última mensagem do cliente tinha sido 24h01m antes) — mas o cliente já tinha visto a mensagem duplicada chegar antes de falhar de verdade, o que gerou a reclamação.
+
+Duas causas reais, dois fixes:
+
+1. **Bug de código**: `src/lib/whatsapp/send-message.ts` trocou o `.maybeSingle()` por uma busca de **todas** as tags "Aguardando resposta%" e remove todas do contato quando um atendente manda mensagem manual — não só a primeira que encontrar. Precisa de deploy (push + GitHub Actions + EasyPanel).
+2. **Bug de desenho da automação**: a automação "Lembrete de Follow-up" reiniciava o ciclo inteiro (marcar tag → esperar 1 dia → mandar) a cada mensagem nova do contato, mesmo logo depois de já ter mandado um lembrete — não existia nenhuma trava contra isso. Corrigido só no banco (sem deploy): criada a tag "Follow-up 24h - Já enviado" e uma condição no topo da automação que, se essa tag já estiver no contato, pula o ciclo inteiro (não reagenda nada); a tag é adicionada automaticamente assim que um lembrete é efetivamente enviado com sucesso. Na prática: cada contato agora recebe esse lembrete **no máximo uma vez**, a não ser que alguém remova a tag "Follow-up 24h - Já enviado" manualmente.
+
+Ponto em aberto, não corrigido ainda: o "Lembrete de Follow-up" manda **texto livre** (não é template aprovado), então só funciona dentro da janela de 24h de atendimento gratuito do WhatsApp — se o cliente demorar mais que isso pra reagir depois do lembrete original, o reenvio (se algum dia for necessário de novo) vai falhar por estar fora da janela. Se isso for um problema recorrente, a solução seria trocar esse lembrete por um template aprovado pela Meta, que pode ser enviado a qualquer momento.
 
 ---
 
