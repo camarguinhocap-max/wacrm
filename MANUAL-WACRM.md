@@ -222,6 +222,8 @@ Total de 5 automações novas pra cobrir todos os cliques:
 4. Opção "Quero ser Assessor" → tag + mensagem (mesma copy do Flow) — gatilhos de comissão
 5. "Não tenho interesse" / "Falar em 1 mês" → tags de opt-out / follow-up + confirmação
 
+**Ajuste 21/08/2026**: a automação do item 1 ("Quero saber mais") mandava direto o mini-menu, sem a mensagem de boas-vindas ("Já salva o meu número..., 45.000 unidades consumidoras...") que quem vem de anúncio do Meta recebe pelo Flow. Pedido do usuário: mesmo sendo contato já conhecido na base (ex: campanha "Cliente OP"), a pessoa não conhece a Sunne Sul/marca — as duas respostas (anúncio e transmissão) têm que ser iguais. Corrigido só no banco (sem deploy): inserida a mesma mensagem de boas-vindas do nó `welcome_save_number` do Flow como 1º passo da automação, antes do mini-menu.
+
 **Dois bugs de código corrigidos** (ambos em `src/app/api/whatsapp/webhook/route.ts`), nenhum ainda publicado (push):
 1. Toque em botão de **template** chega num formato de webhook diferente do botão de Flow, e o wacrm não sabia processar — sem a correção, a automação nunca disparava.
 2. Descoberto durante os testes: o Flow "Menu inicial - Triagem" dispara em qualquer primeira mensagem do contato — e pra maioria dos 1157 contatos, o toque no botão do broadcast SERIA a primeira mensagem deles. Isso faria o Flow "brigar" com as automações novas (ex: alguém toca "Não tenho interesse" e ainda assim recebe o menu de boas-vindas do Flow). Corrigido: toque em botão de template nunca conta como "primeira mensagem" pra fins de disparo de Flow/automação.
