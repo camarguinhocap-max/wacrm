@@ -91,6 +91,14 @@ Ao tentar ativar o Welcome Message, dava esse erro. Causa: o passo de "adicionar
 ### Status atual
 O **Welcome Message foi desativado** depois que o Flow de triagem (ver seção 7) foi criado, porque os dois disparavam na primeira mensagem do contato e mandariam mensagem duplicada. As outras 3 automações (Out of Office, Lead Qualifier, Follow-up Reminder) estão ativas.
 
+### Bug corrigido 22/08/2026: "Qualificacao de Leads" respondia fora de contexto no meio do atendimento
+
+Relatado pelo usuário: cliente já em conversa real com o atendente (ex: Alexandre Leite, negociando desconto) mandava uma mensagem qualquer contendo uma das palavras-gatilho — nesse caso "Muito pouco esse **desconto**" — e o bot interrompia com a resposta genérica de qualificação ("Otimo! Pra te passar uma simulacao de economia, pode me mandar uma foto ou PDF da sua ultima conta de luz?"), ignorando completamente o que o cliente tinha acabado de dizer. Já tinha acontecido antes (contato "Déh😎", 22/08 00:44, e "Cristiano Distribuidor", 19/08).
+
+Causa: a automação **"Qualificacao de Leads"** (gatilho `keyword_match`, palavras: preco, orcamento, quanto custa, economia, desconto — modo "contains") disparava em **qualquer mensagem do cliente, em qualquer ponto da conversa**, sem checar se o contato já tinha passado pela triagem ou já estava sendo atendido por um humano. Como "desconto" e "economia" são palavras usadas o tempo todo nas conversas reais desse negócio, era questão de tempo até um cliente já engajado disparar ela por acidente.
+
+Corrigido só no banco (sem deploy): adicionada uma condição (`tag_presence`) no início da automação — se o contato já tiver a tag **"Segmento Definido"** (marcada assim que ele escolhe Baixa Tensão / Média-Alta / Quero ser Assessor no menu), a automação não faz nada. Ou seja, agora ela só dispara pra leads realmente novos/frios que mandam uma dessas palavras antes de passar pelo menu — não interrompe mais quem já está em atendimento.
+
 ---
 
 ## 5.1 Follow-ups automáticos (regras completas)
