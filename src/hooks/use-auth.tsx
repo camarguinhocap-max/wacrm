@@ -35,6 +35,13 @@ interface Profile {
   beta_features: string[];
   account_id: string | null;
   account_role: AccountRole | null;
+  /**
+   * Telegram chat id the user linked in Settings so the app can DM
+   * them new-message notifications. Added in migration
+   * `037_profiles_telegram_chat_id.sql`; null until the user pastes
+   * their chat id in the profile form.
+   */
+  telegram_chat_id: string | null;
     /**
        * Per-feature override on top of `account_role`: when true, this
           * member can see the sales pipeline (funil) but cannot create/
