@@ -3,8 +3,9 @@
 import { useState, useEffect, useCallback } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
+import { useCan } from "@/hooks/use-can";
 import { cn } from "@/lib/utils";
-import type { Contact, Deal, ContactNote, Tag } from "@/types";
+import type { Contact, Deal, ContactNote, Tag, PipelineStage } from "@/types";
 import {
   Phone,
   Mail,
@@ -18,8 +19,16 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { format } from "date-fns";
 import { useTranslations } from "next-intl";
+import { toast } from "sonner";
 
 interface ContactSidebarProps {
   contact: Contact | null;
@@ -30,8 +39,13 @@ export function ContactSidebar({ contact }: ContactSidebarProps) {
   const tThread = useTranslations("Inbox.messageThread");
 
   const { accountId } = useAuth();
+  const canEditDeals = useCan("edit-deals");
   const [copied, setCopied] = useState(false);
   const [deals, setDeals] = useState<Deal[]>([]);
+  const [stagesByPipeline, setStagesByPipeline] = useState<
+    Record<string, PipelineStage[]>
+  >({});
+  const [movingDealId, setMovingDealId] = useState<string | null>(null);
   const [notes, setNotes] = useState<ContactNote[]>([]);
   const [tags, setTags] = useState<(Tag & { contact_tag_id: string })[]>([]);
   const [newNote, setNewNote] = useState("");
@@ -60,7 +74,32 @@ export function ContactSidebar({ contact }: ContactSidebarProps) {
         .eq("contact_id", contact.id),
     ]);
 
-    if (dealsRes.data) setDeals(dealsRes.data);
+    if (dealsRes.data) {
+      setDeals(dealsRes.data);
+
+      // Load every stage for the pipelines these deals belong to, so the
+      // quick-move dropdown can offer all destinations — not just the
+      // deal's current stage that came back from the join above.
+      const pipelineIds = Array.from(
+        new Set(dealsRes.data.map((d) => d.pipeline_id).filter(Boolean)),
+      );
+      if (pipelineIds.length > 0) {
+        const { data: stagesData } = await supabase
+          .from("pipeline_stages")
+          .select("*")
+          .in("pipeline_id", pipelineIds)
+          .order("position");
+        if (stagesData) {
+          const grouped: Record<string, PipelineStage[]> = {};
+          for (const stage of stagesData) {
+            (grouped[stage.pipeline_id] ??= []).push(stage);
+          }
+          setStagesByPipeline(grouped);
+        }
+      } else {
+        setStagesByPipeline({});
+      }
+    }
     if (notesRes.data) setNotes(notesRes.data);
     if (tagsRes.data) {
       const mapped = tagsRes.data
@@ -118,6 +157,40 @@ export function ContactSidebar({ contact }: ContactSidebarProps) {
     }
     setAddingNote(false);
   }, [contact, newNote, accountId]);
+
+  const handleStageChange = useCallback(
+    async (deal: Deal, newStageId: string) => {
+      if (newStageId === deal.stage_id) return;
+      const newStage = stagesByPipeline[deal.pipeline_id]?.find(
+        (s) => s.id === newStageId,
+      );
+      if (!newStage) return;
+
+      const previousDeals = deals;
+      // Optimistic update so the badge reflects the new stage immediately.
+      setDeals((prev) =>
+        prev.map((d) =>
+          d.id === deal.id
+            ? { ...d, stage_id: newStageId, stage: newStage }
+            : d,
+        ),
+      );
+      setMovingDealId(deal.id);
+
+      const supabase = createClient();
+      const { error } = await supabase
+        .from("deals")
+        .update({ stage_id: newStageId })
+        .eq("id", deal.id);
+
+      if (error) {
+        setDeals(previousDeals);
+        toast.error(tSidebar("moveDealError"));
+      }
+      setMovingDealId(null);
+    },
+    [deals, stagesByPipeline, tSidebar],
+  );
 
   if (!contact) {
     return (
@@ -233,16 +306,51 @@ export function ContactSidebar({ contact }: ContactSidebarProps) {
                         {deal.currency ?? "$"}
                         {deal.value.toLocaleString()}
                       </span>
-                      {deal.stage && (
-                        <span
-                          className="rounded-full px-1.5 py-0.5 text-[10px]"
-                          style={{
-                            backgroundColor: `${deal.stage.color}20`,
-                            color: deal.stage.color,
+                      {canEditDeals &&
+                      (stagesByPipeline[deal.pipeline_id]?.length ?? 0) > 0 ? (
+                        <Select
+                          value={deal.stage_id}
+                          onValueChange={(v) => {
+                            if (v) handleStageChange(deal, v);
                           }}
                         >
-                          {deal.stage.name}
-                        </span>
+                          <SelectTrigger
+                            size="sm"
+                            disabled={movingDealId === deal.id}
+                            className="h-auto w-auto gap-1 border-none bg-transparent py-0 pr-1 pl-1.5 text-[10px]"
+                            style={
+                              deal.stage
+                                ? {
+                                    backgroundColor: `${deal.stage.color}20`,
+                                    color: deal.stage.color,
+                                  }
+                                : undefined
+                            }
+                          >
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {stagesByPipeline[deal.pipeline_id]?.map(
+                              (stage) => (
+                                <SelectItem key={stage.id} value={stage.id}>
+                                  {stage.name}
+                                </SelectItem>
+                              ),
+                            )}
+                          </SelectContent>
+                        </Select>
+                      ) : (
+                        deal.stage && (
+                          <span
+                            className="rounded-full px-1.5 py-0.5 text-[10px]"
+                            style={{
+                              backgroundColor: `${deal.stage.color}20`,
+                              color: deal.stage.color,
+                            }}
+                          >
+                            {deal.stage.name}
+                          </span>
+                        )
                       )}
                     </div>
                   </div>
