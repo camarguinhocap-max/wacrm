@@ -309,6 +309,11 @@ export function ContactSidebar({ contact }: ContactSidebarProps) {
                       {canEditDeals &&
                       (stagesByPipeline[deal.pipeline_id]?.length ?? 0) > 0 ? (
                         <Select
+                          items={Object.fromEntries(
+                            (stagesByPipeline[deal.pipeline_id] ?? []).map(
+                              (s) => [s.id, s.name],
+                            ),
+                          )}
                           value={deal.stage_id}
                           onValueChange={(v) => {
                             if (v) handleStageChange(deal, v);
