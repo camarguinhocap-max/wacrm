@@ -155,13 +155,18 @@ export function ConversationList({
   // conversation's cached last-message snippet.
   useEffect(() => {
     const term = search.trim();
-    if (term.length < 2) {
-      setMessageMatchIds(null);
-      return;
-    }
-
     let cancelled = false;
+
+    // Setting state directly from the effect body (rather than inside the
+    // timeout callback below) is flagged by react-hooks/set-state-in-effect
+    // as a synchronous setState-in-effect, so the reset is debounced same
+    // as the query itself instead of firing immediately on every keystroke.
     const timer = setTimeout(async () => {
+      if (term.length < 2) {
+        if (!cancelled) setMessageMatchIds(null);
+        return;
+      }
+
       const supabase = createClient();
       const { data, error } = await supabase
         .from("messages")
