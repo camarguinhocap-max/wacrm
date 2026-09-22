@@ -32,6 +32,18 @@ vi.mock("@supabase/ssr", () => ({
         return { data: { user: mockUser } };
       },
     },
+    // The disabled-member check (migration 039) queries
+    // `profiles.is_active` for signed-in users on protected paths.
+    // Every scenario here uses an active member, so this always
+    // resolves truthy — none of these tests exercise the disabled
+    // path, which has its own coverage elsewhere.
+    from: () => ({
+      select: () => ({
+        eq: () => ({
+          maybeSingle: async () => ({ data: { is_active: true }, error: null }),
+        }),
+      }),
+    }),
   }),
 }));
 
