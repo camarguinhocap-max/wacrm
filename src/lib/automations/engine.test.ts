@@ -77,6 +77,14 @@ vi.mock("./admin-client", () => {
       eq: (k: string, v: unknown) => (ops.filters.push(["eq", k, v]), b),
       gte: () => b,
       is: () => b,
+      // `in`/`not` are no-ops here, same as the other filter methods above —
+      // engine.ts's in-flight-run dedup check (automation_pending_executions)
+      // calls `.in('status', [...])` and resolveRoundRobinAgent calls
+      // `.not('assigned_agent_id', 'is', null)`; without these the mock
+      // builder threw (b.in/b.not is not a function), which was swallowed by
+      // executeAutomation's try/catch and silently skipped every automation.
+      in: () => b,
+      not: () => b,
       order: () => b,
       limit: () => b,
       single: () => Promise.resolve(resolve(ops)),
