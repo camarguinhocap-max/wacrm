@@ -72,6 +72,13 @@ export function ConversationList({
   const [tags, setTags] = useState<Tag[]>([]);
   const [selectedTagIds, setSelectedTagIds] = useState<string[]>([]);
   const [selectedCompany, setSelectedCompany] = useState<string | null>(null);
+  // Conversation ids whose message history (not just the last message)
+  // contains the current search term. Populated by a debounced query
+  // against `messages.content_text` below, and merged into the `filtered`
+  // search predicate so results aren't limited to name/phone/last message.
+  const [messageMatchIds, setMessageMatchIds] = useState<Set<string> | null>(
+    null
+  );
 
   // Keep the latest callback in a ref so the fetch effect below can
   // have a stable, empty-dep identity. Previously the fetch useCallback
@@ -140,6 +147,52 @@ export function ConversationList({
     };
   }, []);
 
+  // Full-message-history search (issue: search only matched contact
+  // name/phone/last_message_text, so a term buried in an older message
+  // never surfaced a result even though the conversation clearly "had" it).
+  // Debounced so we don't fire a query on every keystroke; queries
+  // `messages.content_text` directly rather than relying on the
+  // conversation's cached last-message snippet.
+  useEffect(() => {
+    const term = search.trim();
+    if (term.length < 2) {
+      setMessageMatchIds(null);
+      return;
+    }
+
+    let cancelled = false;
+    const timer = setTimeout(async () => {
+      const supabase = createClient();
+      const { data, error } = await supabase
+        .from("messages")
+        .select("conversation_id")
+        .ilike("content_text", `%${term}%`)
+        .limit(500);
+
+      if (cancelled) return;
+
+      if (error) {
+        console.error("Failed to search messages:", {
+          message: error.message,
+          details: error.details,
+          hint: error.hint,
+          code: error.code,
+        });
+        setMessageMatchIds(new Set());
+        return;
+      }
+
+      setMessageMatchIds(
+        new Set((data ?? []).map((row) => row.conversation_id as string))
+      );
+    }, 300);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [search]);
+
   // Company options are derived from the loaded conversations — there's no
   // separate companies table, and only companies with a live conversation
   // are worth offering as an inbox filter.
@@ -183,12 +236,25 @@ export function ConversationList({
         const name = c.contact?.name?.toLowerCase() ?? "";
         const phone = c.contact?.phone?.toLowerCase() ?? "";
         const lastMsg = c.last_message_text?.toLowerCase() ?? "";
-        return name.includes(q) || phone.includes(q) || lastMsg.includes(q);
+        const inMessageHistory = messageMatchIds?.has(c.id) ?? false;
+        return (
+          name.includes(q) ||
+          phone.includes(q) ||
+          lastMsg.includes(q) ||
+          inMessageHistory
+        );
       });
     }
 
     return result;
-  }, [conversations, filter, search, selectedTagIds, selectedCompany]);
+  }, [
+    conversations,
+    filter,
+    search,
+    selectedTagIds,
+    selectedCompany,
+    messageMatchIds,
+  ]);
 
   const toggleTag = useCallback((id: string) => {
     setSelectedTagIds((prev) =>
